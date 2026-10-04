@@ -1,0 +1,14 @@
+{
+  "name": "PPL Tracker",
+  "short_name": "PPL",
+  "description": "Push/Pull/Legs gym tracker",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0d10",
+  "theme_color": "#0b0d10",
+  "icons": [
+    { "src": "./icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
