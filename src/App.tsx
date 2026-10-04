@@ -53,7 +53,7 @@ export default function App() {
       setRest({ endsAt: Date.now() + sec * 1000, total: sec });
       if (prs.length) {
         setPrFlash({ exIdx, setIdx });
-        setToast(`🏆 New PR · ${prs[0].kinds.join(' + ')}\n${prs[0].name}: ${prs[0].text}`);
+        setToast(`🏆 New PR · ${prs[0].kinds.join(' + ')}\n${prs[0].name} · ${prs[0].text}`);
         setTimeout(() => setPrFlash(null), 2400);
       }
     }

@@ -78,9 +78,9 @@ const shortEffort = (note?: string) => {
   return [pace, rpe].filter(Boolean).join(', ') || note;
 };
 export function prText(pr: PRResult, unit: Unit): string {
-  if (pr.kind === 'topSet') return `heaviest set ${fmtNum(pr.weight)} ${unit} × ${pr.reps}`;
+  if (pr.kind === 'topSet') return `Heaviest set: ${fmtNum(pr.weight)} ${unit} × ${pr.reps}`;
   if (pr.kind === 'e1rm') return `e1RM ${fmtNum(Math.round(pr.value))} ${unit} (${fmtNum(pr.weight)}×${pr.reps})`;
-  return `${pr.reps} reps @ ${fmtNum(pr.weight)} ${unit}`;
+  return `Rep PR: ${pr.reps} reps @ ${fmtNum(pr.weight)} ${unit}`;
 }
 const bestPr = (prs: PRResult[]) => [...prs].sort((a, b) => PR_ORDER.indexOf(a.kind) - PR_ORDER.indexOf(b.kind))[0];
 
@@ -200,10 +200,15 @@ export function useUi() {
       }
     }));
     // TODO(core): no per-session "PRs set" record is stored; count the CURRENT records (e1rm/topSet) each session holds.
-    const prCount = new Map<string, number>();
+    // = number of exercises whose current e1RM/top-set record was set in that session.
+    const prSets = new Map<string, Set<string>>();
     for (const id of ids.keys()) {
-      for (const pr of getPRs(state, id)) if (pr.sessionId && pr.kind !== 'repsAtWeight') prCount.set(pr.sessionId, (prCount.get(pr.sessionId) ?? 0) + 1);
+      for (const pr of getPRs(state, id)) {
+        if (!pr.sessionId || pr.kind === 'repsAtWeight') continue;
+        prSets.set(pr.sessionId, (prSets.get(pr.sessionId) ?? new Set()).add(id));
+      }
     }
+    const prCount = new Map([...prSets].map(([k, v]) => [k, v.size]));
     const history: HistoryItem[] = sessions.map((ss: WorkoutSession) => {
       const strength = ss.entries.filter((e): e is StrengthEntry => e.kind === 'strength');
       const c = ss.entries.find((e): e is CardioEntry => e.kind === 'cardio' && e.slotId === CARDIO_SLOT_ID);
@@ -267,7 +272,7 @@ export function useUi() {
       if (!res.prs.length) return [];
       const top = bestPr(res.prs);
       const kinds = [...new Set([...res.prs].sort((a, b) => PR_ORDER.indexOf(a.kind) - PR_ORDER.indexOf(b.kind)).map((p) => PR_LABEL[p.kind]))];
-      return [{ name: entry?.exercise.name ?? '', kinds, text: prText(top, w.unit) }];
+      return [{ name: entry?.exercise.name ?? '', kinds, text: `${fmtNum(top.weight)} ${w.unit} × ${top.reps}` }];
     },
     addSet: (slotId: string) => { w.addSet(idx(slotId)); },
     updateCardio: (role: CardioRole, patch: Partial<CardioVM>, current?: CardioVM | null) => {

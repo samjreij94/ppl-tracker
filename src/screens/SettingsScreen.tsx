@@ -45,7 +45,7 @@ export function SettingsScreen({ settings, onChange, onExport, onImport }: Props
           </div>
         </div>
         <div className="setting">
-          <div className="k">Default rest<div className="dim num" style={{ fontSize: 13, fontWeight: 400 }}>{Math.floor(settings.restSec / 60)}:{String(settings.restSec % 60).padStart(2, '0')} min</div></div>
+          <div className="k">Default rest (sec)<div className="dim num" style={{ fontSize: 13, fontWeight: 400 }}>{Math.floor(settings.restSec / 60)}:{String(settings.restSec % 60).padStart(2, '0')} min</div></div>
           <div style={{ width: 170 }}>
             <Stepper label="Default rest seconds" value={settings.restSec} step={15} min={15} max={600} decimals={0} onChange={(v) => onChange({ restSec: v })} />
           </div>
