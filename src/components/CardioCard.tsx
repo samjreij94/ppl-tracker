@@ -18,6 +18,8 @@ interface Props {
   onTimer: (t: CardioTimer) => void;
   onChange: (patch: Partial<CardioVM>) => void;
   onToggleDone: () => void;
+  /** Finisher only: drop the optional block from this session. */
+  onRemove?: () => void;
 }
 
 function vibrate() {
@@ -36,8 +38,10 @@ export function cardioSummary(c: CardioVM, unit: Unit) {
   return bits.join(' · ');
 }
 
-/** Cardio warm-up block — always first in a workout. */
-export function CardioCard({ cardio, unit, timer, onTimer, onChange, onToggleDone }: Props) {
+/** Cardio block: the warm-up (always first) or the optional zone-2 finisher (last). */
+export function CardioCard({ cardio, unit, timer, onTimer, onChange, onToggleDone, onRemove }: Props) {
+  const isFinisher = cardio.role === 'finisher';
+  const title = isFinisher ? 'Cardio finisher · zone 2' : 'Cardio warm-up';
   const [expanded, setExpanded] = useState(!cardio.done);
   const [now, setNow] = useState(Date.now());
   const fired = useRef(false);
@@ -68,11 +72,11 @@ export function CardioCard({ cardio, unit, timer, onTimer, onChange, onToggleDon
 
   if (!expanded) {
     return (
-      <section className={`card cardio-card collapsed${cardio.done ? ' done' : ''}`} aria-label="Cardio warm-up" data-testid="cardio">
+      <section className={`card cardio-card collapsed${cardio.done ? ' done' : ''}`} aria-label={title} data-testid={isFinisher ? 'finisher' : 'cardio'}>
         <div className="row">
           <div className={`cardio-check${cardio.done ? ' on' : ''}`} aria-hidden="true"><IconCheck /></div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="eyebrow">Cardio warm-up</div>
+            <div className="eyebrow">{title}</div>
             <div className="name">{cardioLabel(cardio.kind, cardio.name)}</div>
             <div className="dim num" style={{ fontSize: 14 }}>{cardioSummary(cardio, unit)}</div>
           </div>
@@ -83,14 +87,16 @@ export function CardioCard({ cardio, unit, timer, onTimer, onChange, onToggleDon
   }
 
   return (
-    <section className={`card cardio-card${cardio.done ? ' done' : ''}`} aria-label="Cardio warm-up" data-testid="cardio">
+    <section className={`card cardio-card${cardio.done ? ' done' : ''}`} aria-label={title} data-testid={isFinisher ? 'finisher' : 'cardio'}>
       <div className="row" style={{ marginBottom: 10 }}>
         <div style={{ flex: 1 }}>
-          <div className="eyebrow">Cardio warm-up</div>
+          <div className="eyebrow">{title}</div>
           <div className="name">{cardioLabel(cardio.kind, cardio.name)}</div>
         </div>
         {cardio.done && <button className="btn btn-sm" onClick={() => setExpanded(false)}>Collapse</button>}
+        {!cardio.done && onRemove && <button className="btn btn-sm" onClick={() => { reset(); onRemove(); }}>Skip</button>}
       </div>
+      {cardio.hint && <div className="hint cardio-hint" data-testid="cardio-hint">{cardio.hint}</div>}
       <div className="seg seg-lg" role="group" aria-label="Cardio type">
         {KINDS.map((k) => (
           <button key={k.id} aria-pressed={cardio.kind === k.id} onClick={() => onChange({ kind: k.id })}>{k.short}</button>
@@ -98,8 +104,8 @@ export function CardioCard({ cardio, unit, timer, onTimer, onChange, onToggleDon
       </div>
 
       <div className="grid2" style={{ marginTop: 12 }}>
-        <label className="field-s"><span className="lbl">Minutes</span>
-          <Stepper label="Minutes" value={cardio.minutes} step={1} min={1} max={180} decimals={0} onChange={(v) => { onChange({ minutes: v }); if (!running) reset(); }} />
+        <label className="field-s"><span className="lbl">Minutes{cardio.minMinutes != null && cardio.maxMinutes != null ? <em> {cardio.minMinutes}–{cardio.maxMinutes}</em> : null}</span>
+          <Stepper label={isFinisher ? 'Finisher minutes' : 'Minutes'} value={cardio.minutes} step={1} min={cardio.minMinutes ?? 1} max={cardio.maxMinutes ?? 180} decimals={0} onChange={(v) => { onChange({ minutes: v }); if (!running) reset(); }} />
         </label>
         <div className="cardio-timer">
           <span className="lbl">Timer</span>

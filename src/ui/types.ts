@@ -26,6 +26,40 @@ export interface CardioVM {
   calories?: number;
   output?: number; // Peloton kJ
   done: boolean;
+  role?: 'warmup' | 'finisher';
+  /** Exercise defaultPrescription (warm-up) or zone-2 effort note (finisher). */
+  hint?: string;
+  minMinutes?: number;
+  maxMinutes?: number;
+}
+
+/** The optional finisher as offered before it is added. */
+export interface FinisherOfferVM {
+  kind: string;
+  name: string;
+  minutes: number;
+  minMinutes: number;
+  maxMinutes: number;
+  intensity: string; // "zone-2"
+  note?: string;
+}
+
+export type BodyweightStatus = 'tooSlow' | 'onTrack' | 'tooFast' | 'insufficientData';
+
+export interface BodyweightVM {
+  unit: Unit;
+  /** Today's reading if logged. */
+  today?: number;
+  /** Most recent reading (to prefill the stepper). */
+  latest?: number;
+  points: { date: number; weight: number; avg: number }[];
+  currentAvg: number | null;
+  /** % of bodyweight per week, positive = losing. */
+  weeklyLossPct: number | null;
+  weeklyLoss: number | null;
+  status: BodyweightStatus;
+  target: { min: number; max: number };
+  goalLabel: string;
 }
 
 export interface SetVM {
@@ -56,6 +90,9 @@ export interface TodayVM {
   cardio: CardioVM;
   /** False when cardio warm-up is disabled in settings. */
   hasCardio?: boolean;
+  finisherOffer?: FinisherOfferVM | null;
+  stepTarget?: number;
+  stepRange?: { min: number; max: number };
   exercises: ExerciseVM[];
 }
 
@@ -65,9 +102,16 @@ export interface ActiveVM {
   startedAt: number;
   cardio: CardioVM | null;
   exercises: ExerciseVM[];
+  finisher: CardioVM | null;
+  finisherOffer: FinisherOfferVM | null;
 }
 
-export interface PrHit { name: string; text: string }
+export interface PrHit {
+  name: string;
+  /** Human labels of every record kind this set broke, best first: "Heaviest set", "e1RM", "Rep PR". */
+  kinds: string[];
+  text: string;
+}
 
 export interface SwapOption { exerciseId: string; name: string; note?: string }
 
@@ -79,6 +123,7 @@ export interface HistoryItem {
   volume: number;
   prs: number;
   cardio?: { kind: string; name?: string; minutes: number; done: boolean };
+  finisher?: { kind: string; name?: string; minutes: number; done: boolean };
   durationMin?: number;
 }
 
@@ -91,6 +136,7 @@ export interface SummaryVM {
   volume: number;
   prs: { name: string; text: string }[];
   cardio?: { kind: string; name?: string; minutes: number; done: boolean };
+  finisher?: { kind: string; name?: string; minutes: number; done: boolean };
 }
 
 export interface SettingsVM {

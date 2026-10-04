@@ -16,7 +16,8 @@ export function SummaryScreen({ summary, unit, onDone }: { summary: SummaryVM; u
       {summary.cardio && (
         <div className="card" style={{ marginTop: 12 }}>
           <div className="eyebrow">Cardio</div>
-          <div style={{ fontWeight: 700 }}>{cardioLabel(summary.cardio.kind, summary.cardio.name)} · {summary.cardio.minutes} min {summary.cardio.done ? '✓' : '(skipped)'}</div>
+          <div style={{ fontWeight: 700 }}>Warm-up: {cardioLabel(summary.cardio.kind, summary.cardio.name)} · {summary.cardio.minutes} min {summary.cardio.done ? '✓' : '(skipped)'}</div>
+          {summary.finisher && <div style={{ fontWeight: 700, marginTop: 4 }}>Finisher: {cardioLabel(summary.finisher.kind, summary.finisher.name)} · {summary.finisher.minutes} min {summary.finisher.done ? '✓' : '(not done)'}</div>}
         </div>
       )}
       <h2 className="section">Personal records</h2>

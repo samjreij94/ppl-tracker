@@ -3,9 +3,13 @@
  * UI view-models in ./types. No business logic lives here — only shape mapping and display
  * formatting. Anything core doesn't provide yet is marked `TODO(core)`.
  */
-import { useMemo, useSyncExternalStore } from 'react';
+import { useMemo } from 'react';
 import {
   CARDIO_SLOT_ID,
+  FINISHER_SLOT_ID,
+  getCardioHistory,
+  localDate,
+  useBodyweight,
   convertWeight,
   doneSets,
   getExerciseSeries,
@@ -20,6 +24,10 @@ import {
   volume,
   type ActiveEntryView,
   type CardioEntry,
+  type CardioExercise,
+  type CardioMetrics,
+  type CardioRole,
+  type CoreState,
   type PRResult,
   type ProgressionHint,
   type RepRange,
@@ -29,26 +37,7 @@ import {
   type Unit,
   type WorkoutSession,
 } from '../core';
-import { fmtNum, type ActiveVM, type CardioVM, type ExerciseVM, type HistoryItem, type LastSet, type PrHit, type SeriesPoint, type SettingsVM, type SummaryVM, type SwapOption, type TodayVM } from './types';
-
-/* ---------- cardio extras (TODO(core)) ----------
- * CardioEntry only persists { exerciseId, durationMin, done }. Incline %, speed, calories and
- * Peloton output have nowhere to live in core yet, so they are kept in memory for the current
- * page lifetime only (not persisted, not exported, not prefilled from last time).
- * TODO(core): add optional `incline`, `speed`, `calories`, `output` to CardioEntry + logCardio patch
- * and to TodayCardioSlot.last, then delete this block.
- */
-type CardioExtras = Pick<CardioVM, 'incline' | 'speed' | 'calories' | 'output'>;
-let extras: Record<string, CardioExtras> = {};
-const extrasListeners = new Set<() => void>();
-const extrasStore = {
-  get: () => extras,
-  set: (sessionId: string, patch: CardioExtras) => {
-    extras = { ...extras, [sessionId]: { ...extras[sessionId], ...patch } };
-    extrasListeners.forEach((l) => l());
-  },
-  subscribe: (l: () => void) => { extrasListeners.add(l); return () => { extrasListeners.delete(l); }; },
-};
+import { fmtNum, type ActiveVM, type BodyweightVM, type CardioVM, type FinisherOfferVM, type ExerciseVM, type HistoryItem, type LastSet, type PrHit, type SeriesPoint, type SettingsVM, type SummaryVM, type SwapOption, type TodayVM } from './types';
 
 /* ---------- formatting ---------- */
 const repsText = (r: RepRange) => (r.min === r.max ? `${r.min}` : `${r.min}–${r.max}`);
@@ -69,6 +58,25 @@ export function hintText(p: ProgressionHint | null | undefined, unit: Unit): str
 }
 
 const PR_ORDER: PRResult['kind'][] = ['topSet', 'e1rm', 'repsAtWeight'];
+const PR_LABEL: Record<PRResult['kind'], string> = { topSet: 'Heaviest set', e1rm: 'e1RM', repsAtWeight: 'Rep PR' };
+
+/* ---------- cardio helpers ---------- */
+const METRIC_KEYS = ['incline', 'speed', 'calories', 'output'] as const;
+const pickMetrics = (m: Partial<CardioVM> | CardioMetrics | undefined): CardioMetrics => {
+  const out: CardioMetrics = {};
+  if (m) METRIC_KEYS.forEach((k) => { if (m[k] != null) out[k] = m[k]; });
+  return out;
+};
+/** Last logged metrics for this exercise+role (core doesn't prefill metrics into a new session entry). */
+const lastMetrics = (state: CoreState, exerciseId: string, role: CardioRole): CardioMetrics | undefined =>
+  getCardioHistory(state, { exerciseId, role }).find((h) => h.metrics)?.metrics;
+const shortEffort = (note?: string) => {
+  if (!note) return undefined;
+  // "Zone 2 / easy aerobic: conversational pace, …; roughly 60-70% …, RPE 3-4 out of 10. …" → keep the key cue
+  const rpe = note.match(/RPE\s*[\d-]+/i)?.[0];
+  const pace = /conversational/i.test(note) ? 'conversational pace' : undefined;
+  return [pace, rpe].filter(Boolean).join(', ') || note;
+};
 export function prText(pr: PRResult, unit: Unit): string {
   if (pr.kind === 'topSet') return `heaviest set ${fmtNum(pr.weight)} ${unit} × ${pr.reps}`;
   if (pr.kind === 'e1rm') return `e1RM ${fmtNum(Math.round(pr.value))} ${unit} (${fmtNum(pr.weight)}×${pr.reps})`;
@@ -84,8 +92,18 @@ export function useUi() {
   const s = useSettings();
   const x = useExercises();
   const dt = useDataTransfer();
-  const cx = useSyncExternalStore(extrasStore.subscribe, extrasStore.get, extrasStore.get);
+  const bwh = useBodyweight();
   const unit = s.settings.unit;
+  const effort = (s.finisherConfig?.effortNote ?? w.finisher?.effortNote);
+
+  const finisherOffer: FinisherOfferVM | null = useMemo(() => {
+    const f = w.finisher ?? t.today?.finisher ?? null;
+    if (!f) return null;
+    return {
+      kind: f.exercise.id, name: f.exercise.name, minutes: f.durationMin, minMinutes: f.minDurationMin, maxMinutes: f.maxDurationMin,
+      intensity: f.intensity, note: f.effortNote ? `Zone 2: ${shortEffort(f.effortNote)}` : undefined,
+    };
+  }, [w.finisher, t.today]);
 
   const settings: SettingsVM = { unit, restSec: s.settings.defaultRestSec, schedule: s.settings.schedule };
 
@@ -98,9 +116,12 @@ export function useUi() {
       dayName: tv.day.name,
       dayLabel: `Day ${tv.rotationIndex + 1} of ${t.days.length || 6}${tv.isNext ? ' · next up' : ''}`,
       cardio: c && c.kind === 'cardio'
-        ? { kind: c.exercise.id, name: c.exercise.name, minutes: c.durationMin, done: false }
+        ? { kind: c.exercise.id, name: c.exercise.name, minutes: c.durationMin, done: false, role: 'warmup', ...pickMetrics(c.last?.metrics) }
         : { kind: 'incline-treadmill', minutes: 10, done: false },
       hasCardio: !!c,
+      finisherOffer,
+      stepTarget: s.activity?.dailyStepTarget,
+      stepRange: s.activity?.stepTargetRange,
       exercises: strength.map((sl) => ({
         slotId: sl.slot.id,
         exerciseId: sl.exercise.id,
@@ -114,7 +135,7 @@ export function useUi() {
         sets: [],
       })),
     };
-  }, [t.today, t.days.length, unit]);
+  }, [t.today, t.days.length, unit, finisherOffer, s.activity]);
 
   const entryBySlot = useMemo(() => new Map(w.entries.map((e) => [e.entry.slotId, e])), [w.entries]);
 
@@ -122,13 +143,29 @@ export function useUi() {
     const sess = w.session;
     if (!sess) return null;
     const day = state.program.days.find((d) => d.id === sess.dayId);
-    const cEntry = w.entries.find((e) => e.entry.kind === 'cardio' && e.entry.slotId === CARDIO_SLOT_ID);
-    const ce = cEntry?.entry as CardioEntry | undefined;
+    const cardioVM = (role: CardioRole): CardioVM | null => {
+      const v = w.entries.find((e) => e.entry.kind === 'cardio' && (e.entry.role ?? 'warmup') === role);
+      if (!v) return null;
+      const ce = v.entry as CardioEntry;
+      const ex = v.exercise as CardioExercise;
+      return {
+        role,
+        kind: ce.exerciseId,
+        name: ex.name,
+        minutes: ce.durationMin,
+        done: ce.done,
+        ...pickMetrics(ce.metrics ?? lastMetrics(state, ce.exerciseId, role)),
+        hint: role === 'warmup' ? ex.defaultPrescription : `Zone 2 · ${shortEffort(effort) ?? 'easy aerobic'}`,
+        ...(role === 'finisher' && w.finisher ? { minMinutes: w.finisher.minDurationMin, maxMinutes: w.finisher.maxDurationMin } : {}),
+      };
+    };
     return {
       sessionId: sess.id,
       dayName: day?.name ?? sess.dayId,
       startedAt: Date.parse(sess.startedAt),
-      cardio: ce ? { kind: ce.exerciseId, name: cEntry!.exercise.name, minutes: ce.durationMin, done: ce.done, ...cx[sess.id] } : null,
+      cardio: cardioVM('warmup'),
+      finisher: cardioVM('finisher'),
+      finisherOffer: w.hasFinisher ? null : finisherOffer,
       exercises: w.entries.filter((e) => e.entry.kind === 'strength').map((e: ActiveEntryView): ExerciseVM => {
         const se = e.entry as StrengthEntry;
         return {
@@ -145,7 +182,7 @@ export function useUi() {
         };
       }),
     };
-  }, [w.session, w.entries, w.unit, state.program, cx]);
+  }, [w.session, w.entries, w.unit, w.finisher, w.hasFinisher, state, effort, finisherOffer]);
 
   const idx = (slotId: string) => {
     const e = entryBySlot.get(slotId);
@@ -170,6 +207,7 @@ export function useUi() {
     const history: HistoryItem[] = sessions.map((ss: WorkoutSession) => {
       const strength = ss.entries.filter((e): e is StrengthEntry => e.kind === 'strength');
       const c = ss.entries.find((e): e is CardioEntry => e.kind === 'cardio' && e.slotId === CARDIO_SLOT_ID);
+      const f = ss.entries.find((e): e is CardioEntry => e.kind === 'cardio' && e.slotId === FINISHER_SLOT_ID);
       const vol = strength.reduce((n, e) => n + volume(e.sets), 0);
       return {
         id: ss.id,
@@ -179,18 +217,40 @@ export function useUi() {
         volume: convertWeight(vol, ss.unit, unit),
         prs: prCount.get(ss.id) ?? 0,
         cardio: c ? { kind: c.exerciseId, name: state.exercises[c.exerciseId]?.name, minutes: c.durationMin, done: c.done } : undefined,
+        finisher: f ? { kind: f.exerciseId, name: state.exercises[f.exerciseId]?.name, minutes: f.durationMin, done: f.done } : undefined,
         durationMin: ss.finishedAt ? Math.round((Date.parse(ss.finishedAt) - Date.parse(ss.startedAt)) / 60000) : undefined,
       };
     });
+    // warm-up + finisher minutes per session (done blocks only)
     const cardioMinutes = [...sessions].reverse().flatMap((ss) => {
-      const c = ss.entries.find((e): e is CardioEntry => e.kind === 'cardio' && e.slotId === CARDIO_SLOT_ID);
-      return c && c.done ? [{ date: Date.parse(ss.startedAt), minutes: c.durationMin }] : [];
+      const mins = ss.entries.reduce((n, e) => (e.kind === 'cardio' && e.done ? n + e.durationMin : n), 0);
+      return mins > 0 ? [{ date: Date.parse(ss.startedAt), minutes: mins }] : [];
     });
     return { history, loggedExercises: [...ids].map(([id, v]) => ({ id, name: v.name })), cardioMinutes };
   }, [state, unit]);
 
+  const bodyweight: BodyweightVM = useMemo(() => {
+    const tr = bwh.trend;
+    const today = localDate();
+    const conv = (e: { weight: number; unit: Unit }) => Math.round(convertWeight(e.weight, e.unit, unit) * 10) / 10;
+    const todayEntry = bwh.entries.find((e) => e.date === today);
+    return {
+      unit,
+      today: todayEntry ? conv(todayEntry) : undefined,
+      latest: bwh.entries[0] ? conv(bwh.entries[0]) : undefined,
+      points: tr.points.map((p) => ({ date: Date.parse(`${p.date}T12:00:00`), weight: p.weight, avg: p.avg })),
+      currentAvg: tr.currentAvg,
+      weeklyLossPct: tr.weeklyRate?.lossPctPerWeek ?? null,
+      weeklyLoss: tr.weeklyRate?.lossPerWeek ?? null,
+      status: tr.status,
+      target: tr.target,
+      goalLabel: bwh.goal.type === 'fat-loss' ? 'Fat-loss phase' : `${bwh.goal.type} phase`,
+    };
+  }, [bwh.trend, bwh.entries, bwh.goal, unit]);
+
   return {
     status: state.status,
+    bodyweight,
     error: state.status === 'error' ? `Program data problem: ${state.seedErrors.slice(0, 3).join('; ')}` : null,
     settings,
     today,
@@ -206,21 +266,28 @@ export function useUi() {
       const res = w.logSet(idx(slotId), setIdx, { ...vals, done });
       if (!res.prs.length) return [];
       const top = bestPr(res.prs);
-      return [{ name: entry?.exercise.name ?? '', text: prText(top, w.unit) }];
+      const kinds = [...new Set([...res.prs].sort((a, b) => PR_ORDER.indexOf(a.kind) - PR_ORDER.indexOf(b.kind)).map((p) => PR_LABEL[p.kind]))];
+      return [{ name: entry?.exercise.name ?? '', kinds, text: prText(top, w.unit) }];
     },
     addSet: (slotId: string) => { w.addSet(idx(slotId)); },
-    updateCardio: (patch: Partial<CardioVM>) => {
-      const sess = w.session;
-      const ce = w.entries.find((e) => e.entry.kind === 'cardio' && e.entry.slotId === CARDIO_SLOT_ID);
-      if (!sess || !ce) return;
-      if (patch.kind && patch.kind !== ce.entry.exerciseId) w.swapExercise(CARDIO_SLOT_ID, patch.kind, 'session');
-      if (patch.minutes != null || patch.done != null) {
-        w.logCardio(ce.index, { ...(patch.minutes != null && { durationMin: patch.minutes }), ...(patch.done != null && { done: patch.done }) });
+    updateCardio: (role: CardioRole, patch: Partial<CardioVM>, current?: CardioVM | null) => {
+      const v = w.entries.find((e) => e.entry.kind === 'cardio' && (e.entry.role ?? 'warmup') === role);
+      if (!v) return;
+      if (patch.kind && patch.kind !== v.entry.exerciseId) w.swapExercise(role === 'finisher' ? FINISHER_SLOT_ID : CARDIO_SLOT_ID, patch.kind, 'session');
+      const metrics = pickMetrics(patch);
+      // Marking done persists the metrics shown (incl. ones prefilled from last time).
+      const shown = patch.done ? pickMetrics(current ?? undefined) : {};
+      const all = { ...shown, ...metrics };
+      if (patch.minutes != null || patch.done != null || Object.keys(all).length) {
+        w.logCardio(role, {
+          ...(patch.minutes != null && { durationMin: patch.minutes }),
+          ...(patch.done != null && { done: patch.done }),
+          ...(Object.keys(all).length && { metrics: all }),
+        });
       }
-      const ex: CardioExtras = {};
-      (['incline', 'speed', 'calories', 'output'] as const).forEach((k) => { if (patch[k] != null) ex[k] = patch[k]; });
-      if (Object.keys(ex).length) extrasStore.set(sess.id, ex);
     },
+    addFinisher: () => { w.addFinisher(); },
+    removeFinisher: () => { w.removeFinisher(); },
     getSwaps: (slotId: string): SwapOption[] => {
       const e = entryBySlot.get(slotId);
       if (!e) return [];
@@ -253,6 +320,7 @@ export function useUi() {
       const fs = res?.session ?? sess;
       const strength = fs.entries.filter((e): e is StrengthEntry => e.kind === 'strength');
       const c = fs.entries.find((e): e is CardioEntry => e.kind === 'cardio' && e.slotId === CARDIO_SLOT_ID);
+      const f = fs.entries.find((e): e is CardioEntry => e.kind === 'cardio' && e.slotId === FINISHER_SLOT_ID);
       // one line per exercise: its most notable record
       const byEx = new Map<string, PRResult[]>();
       (res?.prs ?? []).forEach((p) => byEx.set(p.exerciseId, [...(byEx.get(p.exerciseId) ?? []), p]));
@@ -263,8 +331,10 @@ export function useUi() {
         volume: strength.reduce((n, e) => n + volume(e.sets), 0),
         prs: [...byEx].map(([id, prs]) => ({ name: names.get(id) ?? state.exercises[id]?.name ?? id, text: prText(bestPr(prs), fs.unit) })),
         cardio: c ? { kind: c.exerciseId, name: state.exercises[c.exerciseId]?.name, minutes: c.durationMin, done: c.done } : undefined,
+        finisher: f ? { kind: f.exerciseId, name: state.exercises[f.exerciseId]?.name, minutes: f.durationMin, done: f.done } : undefined,
       };
     },
+    logBodyweight: (weight: number) => { bwh.logBodyweight({ weight, unit }); },
     getSeries: (exerciseId: string): SeriesPoint[] =>
       getExerciseSeries(state, exerciseId).map((p) => ({ date: Date.parse(p.date), e1rm: p.e1rm, top: p.topSet.weight, volume: p.volume })),
     updateSettings: (patch: Partial<SettingsVM>) => {

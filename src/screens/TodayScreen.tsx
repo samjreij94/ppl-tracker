@@ -1,15 +1,18 @@
 import { cardioSummary } from '../components/CardioCard';
-import { cardioLabel, fmtSet, type TodayVM, type Unit } from '../ui/types';
+import { cardioLabel, fmtNum, fmtSet, type TodayVM, type Unit } from '../ui/types';
 
 interface Props {
   today: TodayVM | null;
   unit: Unit;
   resuming?: boolean;
+  /** Today's bodyweight if logged. */
+  bodyweightToday?: number;
   onStart: () => void;
+  onLogBodyweight: () => void;
 }
 
 /** Next day in the rotation + exercise preview + big Start button (bottom third). */
-export function TodayScreen({ today, unit, resuming, onStart }: Props) {
+export function TodayScreen({ today, unit, resuming, bodyweightToday, onStart, onLogBodyweight }: Props) {
   if (!today) return <div className="screen"><div className="empty">Loading…</div></div>;
   const setCount = today.exercises.reduce((n, e) => n + e.targetSets, 0);
   return (
@@ -19,6 +22,19 @@ export function TodayScreen({ today, unit, resuming, onStart }: Props) {
         <h1>{today.dayName}</h1>
         <div className="sub num">{today.exercises.length} exercises · {setCount} sets · cardio warm-up</div>
       </header>
+
+      <div className="today-stats">
+        {today.stepTarget != null && (
+          <div className="stat" data-testid="steps">
+            <div className="v num">{today.stepTarget.toLocaleString()}</div>
+            <div className="k">daily step target</div>
+          </div>
+        )}
+        <button className="stat stat-btn" onClick={onLogBodyweight} data-testid="today-bw">
+          <div className="v num">{bodyweightToday != null ? <>{fmtNum(bodyweightToday)}<small> {unit}</small></> : 'Log'}</div>
+          <div className="k">{bodyweightToday != null ? 'bodyweight ✓' : 'bodyweight today →'}</div>
+        </button>
+      </div>
 
       <div className="stack">
         <div className="card ex-card cardio-preview" data-testid="today-cardio">
@@ -44,6 +60,12 @@ export function TodayScreen({ today, unit, resuming, onStart }: Props) {
             </div>
           </div>
         ))}
+        {today.finisherOffer && (
+          <div className="card ex-card finisher-preview" data-testid="today-finisher">
+            <div className="eyebrow">Optional finisher · {today.finisherOffer.intensity.replace('-', ' ')}</div>
+            <div className="name">{cardioLabel(today.finisherOffer.kind, today.finisherOffer.name)} · {today.finisherOffer.minutes} min</div>
+          </div>
+        )}
       </div>
 
       <div className="footer-bar">

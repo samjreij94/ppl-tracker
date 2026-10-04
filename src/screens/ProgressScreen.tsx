@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import { LineChart } from '../components/LineChart';
+import { BodyweightCard } from '../components/BodyweightCard';
 import { IconTrophy } from '../components/Icons';
-import { cardioLabel, fmtNum, fmtVolume, type HistoryItem, type Metric, type SeriesPoint, type Unit } from '../ui/types';
+import { cardioLabel, fmtNum, fmtVolume, type BodyweightVM, type HistoryItem, type Metric, type SeriesPoint, type Unit } from '../ui/types';
 
 interface Props {
   unit: Unit;
@@ -13,6 +14,8 @@ interface Props {
   onSelect: (id: string) => void;
   onMetric: (m: Metric) => void;
   cardioMinutes?: { date: number; minutes: number }[];
+  bodyweight: BodyweightVM;
+  onLogBodyweight: (weight: number) => void;
 }
 
 const METRICS: { id: Metric; label: string }[] = [
@@ -22,7 +25,7 @@ const METRICS: { id: Metric; label: string }[] = [
 ];
 export const CARDIO_CHART_ID = '__cardio__';
 
-export function ProgressScreen({ unit, history, exercises, selectedId, series, metric, onSelect, onMetric, cardioMinutes }: Props) {
+export function ProgressScreen({ unit, history, exercises, selectedId, series, metric, onSelect, onMetric, cardioMinutes, bodyweight, onLogBodyweight }: Props) {
   const isCardio = selectedId === CARDIO_CHART_ID;
   const points = useMemo(() => (isCardio
     ? (cardioMinutes ?? []).map((c) => ({ x: c.date, y: c.minutes }))
@@ -40,12 +43,15 @@ export function ProgressScreen({ unit, history, exercises, selectedId, series, m
         <h1>Your trends</h1>
       </header>
 
-      <div className="card chart-wrap">
+      <BodyweightCard bw={bodyweight} onLog={onLogBodyweight} />
+
+      <h2 className="section">Lifts</h2>
+      <div className="card chart-wrap" data-testid="lift-chart">
         <label className="sr-only" htmlFor="ex-pick">Exercise</label>
         <select id="ex-pick" className="select-native" value={selectedId ?? ''} onChange={(e) => onSelect(e.target.value)}>
           {exercises.length === 0 && <option value="">No exercises logged yet</option>}
           {exercises.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-          {cardioMinutes && <option value={CARDIO_CHART_ID}>Cardio (minutes)</option>}
+          {cardioMinutes && <option value={CARDIO_CHART_ID}>Cardio minutes (warm-up + finisher)</option>}
         </select>
         {!isCardio && (
           <div className="seg" role="group" aria-label="Metric" style={{ marginTop: 10 }}>
@@ -74,6 +80,7 @@ export function ProgressScreen({ unit, history, exercises, selectedId, series, m
                 <div className="dim num" style={{ fontSize: 14 }}>
                   {h.sets} sets · {fmtVolume(h.volume)} {unit}
                   {h.cardio ? ` · ${cardioLabel(h.cardio.kind, h.cardio.name)} ${h.cardio.minutes}m` : ''}
+                  {h.finisher?.done ? ` + ${h.finisher.minutes}m finisher` : ''}
                 </div>
               </div>
               {h.prs > 0 && <span className="pill pill-pr"><IconTrophy width={14} height={14} />{h.prs}</span>}

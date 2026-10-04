@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { TabBar, type Tab } from './components/TabBar';
 import { RestBar, type RestState } from './components/RestBar';
 import { Celebration } from './components/Celebration';
 import { SwapSheet } from './components/SwapSheet';
 import type { CardioTimer } from './components/CardioCard';
+import { ConfirmDialog } from './components/ConfirmDialog';
 import { TodayScreen } from './screens/TodayScreen';
-import { WorkoutScreen } from './screens/WorkoutScreen';
+import { WorkoutScreen, type CardioRole } from './screens/WorkoutScreen';
 import { SummaryScreen } from './screens/SummaryScreen';
 import { ProgressScreen } from './screens/ProgressScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
@@ -14,6 +15,7 @@ import type { Metric, SummaryVM } from './ui/types';
 import './ui/styles/app.css';
 
 const NO_TIMER: CardioTimer = { endsAt: null, pausedLeftSec: null };
+const NO_TIMERS: Record<CardioRole, CardioTimer> = { warmup: NO_TIMER, finisher: NO_TIMER };
 
 export default function App() {
   const ui = useUi();
@@ -23,7 +25,8 @@ export default function App() {
   const [prFlash, setPrFlash] = useState<{ exIdx: number; setIdx: number } | null>(null);
   const [swapIdx, setSwapIdx] = useState<number | null>(null);
   const [summary, setSummary] = useState<SummaryVM | null>(null);
-  const [cardioTimer, setCardioTimer] = useState<CardioTimer>(NO_TIMER);
+  const [timers, setTimers] = useState<Record<CardioRole, CardioTimer>>(NO_TIMERS);
+  const [confirmFinish, setConfirmFinish] = useState<number | null>(null);
   const [metric, setMetric] = useState<Metric>('e1rm');
   const [selectedEx, setSelectedEx] = useState<string | null>(null);
 
@@ -50,15 +53,21 @@ export default function App() {
       setRest({ endsAt: Date.now() + sec * 1000, total: sec });
       if (prs.length) {
         setPrFlash({ exIdx, setIdx });
-        setToast(`🏆 New PR! ${prs[0].name} ${prs[0].text}`);
+        setToast(`🏆 New PR · ${prs[0].kinds.join(' + ')}\n${prs[0].name}: ${prs[0].text}`);
         setTimeout(() => setPrFlash(null), 2400);
       }
     }
   };
 
+  const requestFinish = () => {
+    if (!active) return;
+    const open = active.exercises.reduce((n, e) => n + e.sets.filter((x) => !x.done).length, 0);
+    if (open > 0) setConfirmFinish(open); else void finish();
+  };
   const finish = async () => {
+    setConfirmFinish(null);
     setRest(null);
-    setCardioTimer(NO_TIMER);
+    setTimers(NO_TIMERS);
     const s = await ui.finish();
     setSummary(s);
   };
@@ -71,7 +80,8 @@ export default function App() {
   if (tab === 'progress') {
     screen = (
       <ProgressScreen unit={unit} history={ui.history} exercises={ui.loggedExercises} selectedId={selectedEx} series={series}
-        metric={metric} onSelect={setSelectedEx} onMetric={setMetric} cardioMinutes={ui.cardioMinutes} />
+        metric={metric} onSelect={setSelectedEx} onMetric={setMetric} cardioMinutes={ui.cardioMinutes}
+        bodyweight={ui.bodyweight} onLogBodyweight={ui.logBodyweight} />
     );
   } else if (tab === 'settings') {
     screen = <SettingsScreen settings={settings} onChange={ui.updateSettings} onExport={ui.exportFile} onImport={ui.importText} />;
@@ -80,24 +90,28 @@ export default function App() {
   } else if (active) {
     screen = (
       <WorkoutScreen
-        dayName={active.dayName} unit={unit} startedAt={active.startedAt} cardio={active.cardio} cardioTimer={cardioTimer} exercises={active.exercises}
+        dayName={active.dayName} unit={unit} startedAt={active.startedAt} exercises={active.exercises}
+        cardio={active.cardio} finisher={active.finisher} finisherOffer={active.finisherOffer} timers={timers}
         prFlash={prFlash}
-        onCardioTimer={setCardioTimer}
-        onCardioChange={ui.updateCardio}
-        onCardioDone={() => ui.updateCardio({ done: !active.cardio?.done })}
+        onCardioTimer={(role, t) => setTimers((m) => ({ ...m, [role]: t }))}
+        onCardioChange={(role, patch) => ui.updateCardio(role, patch)}
+        onCardioDone={(role) => { const c = role === 'warmup' ? active.cardio : active.finisher; ui.updateCardio(role, { done: !c?.done }, c); }}
+        onAddFinisher={ui.addFinisher}
+        onRemoveFinisher={() => { setTimers((m) => ({ ...m, finisher: NO_TIMER })); ui.removeFinisher(); }}
         onSetChange={(e, s, patch) => ui.updateSet(active.exercises[e].slotId, s, patch)}
         onToggleDone={toggleDone}
         onAddSet={(e) => ui.addSet(active.exercises[e].slotId)}
         onSwap={setSwapIdx}
-        onFinish={finish}
+        onFinish={requestFinish}
       />
     );
   } else {
-    screen = <TodayScreen today={ui.today} unit={unit} onStart={() => ui.start()} />;
+    screen = <TodayScreen today={ui.today} unit={unit} bodyweightToday={ui.bodyweight.today} onStart={() => ui.start()}
+      onLogBodyweight={() => { setTab('progress'); window.scrollTo(0, 0); }} />;
   }
 
   return (
-    <div className="app" style={showRest ? ({ '--rest-pad': 'var(--restbar-h)' } as React.CSSProperties) : undefined}>
+    <div className="app" style={showRest ? ({ '--rest-pad': 'var(--restbar-h)' } as CSSProperties) : undefined}>
       {ui.error && <div className="card" role="alert" style={{ margin: 12, borderColor: 'var(--danger)' }}>{ui.error}</div>}
       {screen}
       {showRest && rest && (
@@ -113,6 +127,10 @@ export default function App() {
           onAddCustom={async (input, scope) => { await ui.addCustom(swapEx.slotId, input, scope); setSwapIdx(null); }} />
       )}
       {toast && <Celebration message={toast} onDone={clearToast} />}
+      {confirmFinish != null && (
+        <ConfirmDialog title="Finish workout?" body={`${confirmFinish} set${confirmFinish === 1 ? '' : 's'} not marked done. Only completed sets are saved to history.`}
+          confirmLabel="Finish" onCancel={() => setConfirmFinish(null)} onConfirm={() => void finish()} />
+      )}
     </div>
   );
 }

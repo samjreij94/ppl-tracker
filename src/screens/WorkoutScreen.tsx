@@ -1,18 +1,25 @@
 import { CardioCard, type CardioTimer } from '../components/CardioCard';
 import { ExerciseLog } from '../components/ExerciseLog';
-import type { CardioVM, ExerciseVM, SetVM, Unit } from '../ui/types';
+import { FinisherOffer } from '../components/FinisherOffer';
+import type { CardioVM, ExerciseVM, FinisherOfferVM, SetVM, Unit } from '../ui/types';
+
+export type CardioRole = 'warmup' | 'finisher';
 
 interface Props {
   dayName: string;
   unit: Unit;
   startedAt: number;
   cardio: CardioVM | null;
-  cardioTimer: CardioTimer;
+  finisher: CardioVM | null;
+  finisherOffer: FinisherOfferVM | null;
+  timers: Record<CardioRole, CardioTimer>;
   exercises: ExerciseVM[];
   prFlash: { exIdx: number; setIdx: number } | null;
-  onCardioTimer: (t: CardioTimer) => void;
-  onCardioChange: (patch: Partial<CardioVM>) => void;
-  onCardioDone: () => void;
+  onCardioTimer: (role: CardioRole, t: CardioTimer) => void;
+  onCardioChange: (role: CardioRole, patch: Partial<CardioVM>) => void;
+  onCardioDone: (role: CardioRole) => void;
+  onAddFinisher: () => void;
+  onRemoveFinisher: () => void;
   onSetChange: (exIdx: number, setIdx: number, patch: Partial<SetVM>) => void;
   onToggleDone: (exIdx: number, setIdx: number) => void;
   onAddSet: (exIdx: number) => void;
@@ -28,12 +35,13 @@ export function WorkoutScreen(p: Props) {
       <header className="screen-header">
         <div className="eyebrow">In progress</div>
         <h1>{p.dayName}</h1>
-        <div className="sub num">{done}/{total} sets done{p.cardio ? ` · cardio ${p.cardio.done ? '✓' : 'pending'}` : ''}</div>
+        <div className="sub num">{done}/{total} sets{p.cardio ? ` · warm-up ${p.cardio.done ? '✓' : 'pending'}` : ''}{p.finisher ? ` · finisher ${p.finisher.done ? '✓' : 'pending'}` : ''}</div>
         <div className="progress-track" aria-hidden="true"><div style={{ width: `${total ? (done / total) * 100 : 0}%` }} /></div>
       </header>
 
       {p.cardio && (
-        <CardioCard cardio={p.cardio} unit={p.unit} timer={p.cardioTimer} onTimer={p.onCardioTimer} onChange={p.onCardioChange} onToggleDone={p.onCardioDone} />
+        <CardioCard cardio={p.cardio} unit={p.unit} timer={p.timers.warmup} onTimer={(t) => p.onCardioTimer('warmup', t)}
+          onChange={(c) => p.onCardioChange('warmup', c)} onToggleDone={() => p.onCardioDone('warmup')} />
       )}
 
       <div style={{ marginTop: 14 }}>
@@ -49,6 +57,15 @@ export function WorkoutScreen(p: Props) {
             onSwap={() => p.onSwap(i)}
           />
         ))}
+      </div>
+
+      <div style={{ marginTop: 14 }}>
+        {p.finisher ? (
+          <CardioCard cardio={p.finisher} unit={p.unit} timer={p.timers.finisher} onTimer={(t) => p.onCardioTimer('finisher', t)}
+            onChange={(c) => p.onCardioChange('finisher', c)} onToggleDone={() => p.onCardioDone('finisher')} onRemove={p.onRemoveFinisher} />
+        ) : p.finisherOffer ? (
+          <FinisherOffer offer={p.finisherOffer} onAdd={p.onAddFinisher} />
+        ) : null}
       </div>
 
       <div className="footer-bar">
