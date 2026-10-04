@@ -27,7 +27,7 @@ export interface CardioVM {
   output?: number; // Peloton kJ
   done: boolean;
   role?: 'warmup' | 'finisher';
-  /** Exercise defaultPrescription (warm-up) or zone-2 effort note (finisher). */
+  /** Core prescription: warm-up text, or the finisher's zone-2 prescription (follows swaps + duration). */
   hint?: string;
   minMinutes?: number;
   maxMinutes?: number;
@@ -79,6 +79,8 @@ export interface ExerciseVM {
   targetReps: string; // "8" or "6-8"
   lastSets: LastSet[];
   hint?: string;
+  /** Styling for the hint: a deload-week prescription renders calmer than a progression nudge. */
+  hintKind?: 'deload';
   swapped?: boolean;
   restSec?: number;
   sets: SetVM[];
@@ -94,12 +96,25 @@ export interface TodayVM {
   stepTarget?: number;
   stepRange?: { min: number; max: number };
   exercises: ExerciseVM[];
+  deload?: DeloadVM;
+}
+
+/** Deload week status (core DeloadStatus, display-ready). */
+export interface DeloadVM {
+  active: boolean;
+  due: boolean;
+  daysLeft?: number;
+  /** "6 weeks since last deload" etc.; null when not due. */
+  reason: string | null;
+  weeksSinceLast: number | null;
 }
 
 export interface ActiveVM {
   sessionId: string;
   dayName: string;
   startedAt: number;
+  /** Session was started during a deload week. */
+  deload?: boolean;
   cardio: CardioVM | null;
   exercises: ExerciseVM[];
   finisher: CardioVM | null;

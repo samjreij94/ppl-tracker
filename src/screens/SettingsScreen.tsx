@@ -1,16 +1,18 @@
 import { useRef, useState } from 'react';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Stepper } from '../components/Stepper';
-import type { SettingsVM } from '../ui/types';
+import type { DeloadVM, SettingsVM } from '../ui/types';
 
 interface Props {
   settings: SettingsVM;
   onChange: (patch: Partial<SettingsVM>) => void;
   onExport: () => Promise<string | void>;
   onImport: (text: string) => Promise<void>;
+  deload?: DeloadVM;
+  onEndDeload?: () => void;
 }
 
-export function SettingsScreen({ settings, onChange, onExport, onImport }: Props) {
+export function SettingsScreen({ settings, onChange, onExport, onImport, deload, onEndDeload }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState<{ name: string; text: string } | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -51,6 +53,18 @@ export function SettingsScreen({ settings, onChange, onExport, onImport }: Props
           </div>
         </div>
       </div>
+
+      {deload?.active && (
+        <>
+          <h2 className="section">Training</h2>
+          <div className="card" style={{ padding: '4px 16px' }} data-testid="settings-deload">
+            <div className="setting">
+              <div className="k">Deload week<div className="dim num" style={{ fontSize: 13, fontWeight: 400 }}>{deload.daysLeft != null ? `${deload.daysLeft} day${deload.daysLeft === 1 ? '' : 's'} left` : 'in progress'}</div></div>
+              <button className="btn btn-ghost" onClick={onEndDeload} data-testid="end-deload">End deload</button>
+            </div>
+          </div>
+        </>
+      )}
 
       <h2 className="section">Your data</h2>
       <div className="card settings-actions">

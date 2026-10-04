@@ -112,6 +112,14 @@ h2.section { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; 
 .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 13px; font-weight: 700; background: var(--surface-2); color: var(--text-dim); }
 .pill-accent { background: rgba(198,255,0,.14); color: var(--accent); }
 .pill-pr { background: rgba(255,184,0,.16); color: var(--pr); }
+/* Deload: calm lavender, distinct from progression (info) and PR (gold) */
+.pill-deload { margin-top: 10px; background: rgba(167,139,250,.16); color: #c4b5fd; }
+.hint.hint-deload { background: rgba(167,139,250,.14); color: #c4b5fd; }
+.deload-card { margin-bottom: 14px; border-color: rgba(167,139,250,.35); background: linear-gradient(180deg, rgba(167,139,250,.08), transparent 70%), var(--surface); }
+.deload-card .eyebrow { color: #c4b5fd; }
+.deload-card .name { font-weight: 800; font-size: 18px; margin-top: 2px; }
+.deload-card .note { margin: 6px 0 12px; line-height: 1.4; }
+.deload-card .btn { width: 100%; }
 
 /* Workout */
 .ex-log { padding: 14px 12px 10px; }

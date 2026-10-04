@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { cardioSummary } from '../components/CardioCard';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { cardioLabel, fmtNum, fmtSet, type TodayVM, type Unit } from '../ui/types';
 
 interface Props {
@@ -9,11 +11,14 @@ interface Props {
   bodyweightToday?: number;
   onStart: () => void;
   onLogBodyweight: () => void;
+  onStartDeload?: () => void;
 }
 
 /** Next day in the rotation + exercise preview + big Start button (bottom third). */
-export function TodayScreen({ today, unit, resuming, bodyweightToday, onStart, onLogBodyweight }: Props) {
+export function TodayScreen({ today, unit, resuming, bodyweightToday, onStart, onLogBodyweight, onStartDeload }: Props) {
+  const [confirmDeload, setConfirmDeload] = useState(false);
   if (!today) return <div className="screen"><div className="empty">Loading…</div></div>;
+  const dl = today.deload;
   const setCount = today.exercises.reduce((n, e) => n + e.targetSets, 0);
   return (
     <div className="screen has-footer" data-testid="today">
@@ -21,7 +26,21 @@ export function TodayScreen({ today, unit, resuming, bodyweightToday, onStart, o
         <div className="eyebrow">{today.dayLabel ?? 'Next up'}</div>
         <h1>{today.dayName}</h1>
         <div className="sub num">{today.exercises.length} exercises · {setCount} sets · cardio warm-up</div>
+        {dl?.active && (
+          <div className="pill pill-deload num" data-testid="deload-badge">
+            Deload week{dl.daysLeft != null ? ` · ${dl.daysLeft} day${dl.daysLeft === 1 ? '' : 's'} left` : ''}
+          </div>
+        )}
       </header>
+
+      {dl?.due && !dl.active && (
+        <section className="card deload-card" aria-label="Deload recommended" data-testid="deload-card">
+          <div className="eyebrow">Recovery</div>
+          <div className="name">Time for a deload week</div>
+          <p className="dim note">{dl.reason ? `${dl.reason.charAt(0).toUpperCase()}${dl.reason.slice(1)}. ` : ''}Half the sets at about 90% of your working weight, stopping 3–4 reps short. You’ll come back stronger.</p>
+          <button className="btn" onClick={() => setConfirmDeload(true)} data-testid="start-deload">Start deload week</button>
+        </section>
+      )}
 
       <div className="today-stats">
         {today.stepTarget != null && (
@@ -40,6 +59,7 @@ export function TodayScreen({ today, unit, resuming, bodyweightToday, onStart, o
         <div className="card ex-card cardio-preview" data-testid="today-cardio">
           <div className="eyebrow">Cardio warm-up</div>
           <div className="name">Cardio · {cardioLabel(today.cardio.kind, today.cardio.name)} · {today.cardio.minutes} min</div>
+          {today.cardio.hint && <div className="dim note" data-testid="today-cardio-rx">{today.cardio.hint}</div>}
           {(today.cardio.incline || today.cardio.speed || today.cardio.output || today.cardio.calories) ? (
             <div className="meta num"><span className="last">Last: {cardioSummary(today.cardio, unit)}</span></div>
           ) : null}
@@ -64,6 +84,7 @@ export function TodayScreen({ today, unit, resuming, bodyweightToday, onStart, o
           <div className="card ex-card finisher-preview" data-testid="today-finisher">
             <div className="eyebrow">Optional finisher · {today.finisherOffer.intensity.replace('-', ' ')}</div>
             <div className="name">{cardioLabel(today.finisherOffer.kind, today.finisherOffer.name)} · {today.finisherOffer.minutes} min</div>
+            {today.finisherOffer.note && <div className="dim note" data-testid="today-finisher-rx">{today.finisherOffer.note}</div>}
           </div>
         )}
       </div>
@@ -71,6 +92,16 @@ export function TodayScreen({ today, unit, resuming, bodyweightToday, onStart, o
       <div className="footer-bar">
         <button className="btn btn-primary btn-lg" onClick={onStart} data-testid="start">{resuming ? 'Resume Workout' : 'Start Workout'}</button>
       </div>
+
+      {confirmDeload && (
+        <ConfirmDialog
+          title="Start a deload week?"
+          body="For the next 7 days every exercise drops to half the sets at about 90% of your working weight. PRs still count; progression picks up where you left off afterwards. You can end it early in Settings."
+          confirmLabel="Start deload"
+          onCancel={() => setConfirmDeload(false)}
+          onConfirm={() => { setConfirmDeload(false); onStartDeload?.(); }}
+        />
+      )}
     </div>
   );
 }

@@ -33,7 +33,7 @@ export function ExerciseLog({ ex, unit, prSetIndex, onSetChange, onToggleDone, o
         </div>
         <button className="icon-btn" aria-label={`Swap ${ex.name}`} onClick={onSwap}><IconSwap /></button>
       </div>
-      {ex.hint && <div className="hint" data-testid="hint">{ex.hint}</div>}
+      {ex.hint && <div className={ex.hintKind === 'deload' ? 'hint hint-deload' : 'hint'} data-testid="hint">{ex.hint}</div>}
       <div className="sets">
         {ex.sets.map((s, i) => {
           const isActive = i === active;

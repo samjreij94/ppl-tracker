@@ -10,6 +10,8 @@ import {
   getCardioHistory,
   localDate,
   useBodyweight,
+  useDeload,
+  deloadSets,
   convertWeight,
   doneSets,
   getExerciseSeries,
@@ -29,6 +31,7 @@ import {
   type CardioMetrics,
   type CardioRole,
   type CoreState,
+  type DeloadStatus,
   type PRResult,
   type ProgressionHint,
   type RepRange,
@@ -38,7 +41,7 @@ import {
   type Unit,
   type WorkoutSession,
 } from '../core';
-import { fmtNum, type ActiveVM, type BodyweightVM, type CardioVM, type FinisherOfferVM, type ExerciseVM, type HistoryItem, type LastSet, type PrHit, type SeriesPoint, type SettingsVM, type SummaryVM, type SwapOption, type TodayVM } from './types';
+import { fmtNum, type ActiveVM, type BodyweightVM, type CardioVM, type DeloadVM, type FinisherOfferVM, type ExerciseVM, type HistoryItem, type LastSet, type PrHit, type SeriesPoint, type SettingsVM, type SummaryVM, type SwapOption, type TodayVM } from './types';
 
 /* ---------- formatting ---------- */
 const repsText = (r: RepRange) => (r.min === r.max ? `${r.min}` : `${r.min}–${r.max}`);
@@ -48,12 +51,15 @@ const lastSets = (sets: readonly SetLog[] | undefined): LastSet[] => {
   return (done.length ? done : []).map((s) => ({ weight: s.weight, reps: s.reps }));
 };
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const hintKind = (p: ProgressionHint | null | undefined) => (p?.action === 'deload' ? ({ hintKind: 'deload' } as const) : {});
+const deloadVM = (d: DeloadStatus): DeloadVM => ({ active: d.active, due: d.due, daysLeft: d.daysLeft, reason: d.reason, weeksSinceLast: d.weeksSinceLast });
 
 export function hintText(p: ProgressionHint | null | undefined, unit: Unit): string | undefined {
   if (!p) return undefined;
   switch (p.action) {
     case 'increase': return p.newWeight != null ? `Hit all reps last time — try ${fmtNum(p.newWeight)} ${unit}` : cap(p.message);
     case 'addReps': return p.targetReps != null && p.newWeight != null ? `Stay at ${fmtNum(p.newWeight)} ${unit}, aim for ${p.targetReps} reps` : cap(p.message);
+    case 'deload': return cap(p.message); // core's ready-made "deload week: 2 × 5 at 120 lb, stop at RIR 3-4"
     default: return cap(p.message);
   }
 }
@@ -118,6 +124,7 @@ export function useUi() {
   const x = useExercises();
   const dt = useDataTransfer();
   const bwh = useBodyweight();
+  const dl = useDeload();
   const unit = s.settings.unit;
   const effort = (s.finisherConfig?.effortNote ?? w.finisher?.effortNote);
 
@@ -126,7 +133,7 @@ export function useUi() {
     if (!f) return null;
     return {
       kind: f.exercise.id, name: f.exercise.name, minutes: f.durationMin, minMinutes: f.minDurationMin, maxMinutes: f.maxDurationMin,
-      intensity: f.intensity, note: f.effortNote ? `Zone 2: ${shortEffort(f.effortNote)}` : undefined,
+      intensity: f.intensity, note: f.prescription || (f.effortNote ? `Zone 2: ${shortEffort(f.effortNote)}` : undefined),
     };
   }, [w.finisher, t.today]);
 
@@ -141,7 +148,7 @@ export function useUi() {
       dayName: tv.day.name,
       dayLabel: `Day ${tv.rotationIndex + 1} of ${t.days.length || 6}${tv.isNext ? ' · next up' : ''}`,
       cardio: c && c.kind === 'cardio'
-        ? { kind: c.exercise.id, name: c.exercise.name, minutes: c.durationMin, done: false, role: 'warmup', ...pickMetrics(c.metrics ?? c.last?.metrics) }
+        ? { kind: c.exercise.id, name: c.exercise.name, minutes: c.durationMin, done: false, role: 'warmup', hint: c.prescription, ...pickMetrics(c.metrics ?? c.last?.metrics) }
         : { kind: 'incline-treadmill', minutes: 10, done: false },
       hasCardio: !!c,
       finisherOffer,
@@ -155,10 +162,12 @@ export function useUi() {
         targetReps: repsText(sl.target.repRange),
         lastSets: lastSets(sl.last?.sets),
         hint: hintText(sl.progression, unit),
+        ...hintKind(sl.progression),
         swapped: sl.swapped,
         restSec: sl.target.restSec,
         sets: [],
       })),
+      deload: deloadVM(tv.deload),
     };
   }, [t.today, t.days.length, unit, finisherOffer, s.activity]);
 
@@ -180,7 +189,7 @@ export function useUi() {
         minutes: ce.durationMin,
         done: ce.done,
         ...pickMetrics(ce.metrics ?? lastMetrics(state, ce.exerciseId, role)),
-        hint: role === 'warmup' ? ex.defaultPrescription : `Zone 2 · ${shortEffort(effort) ?? 'easy aerobic'}`,
+        hint: v.prescription ?? (role === 'warmup' ? ex.defaultPrescription : `Zone 2 · ${shortEffort(effort) ?? 'easy aerobic'}`),
         ...(role === 'finisher' && w.finisher ? { minMinutes: w.finisher.minDurationMin, maxMinutes: w.finisher.maxDurationMin } : {}),
       };
     };
@@ -188,6 +197,7 @@ export function useUi() {
       sessionId: sess.id,
       dayName: day?.name ?? sess.dayId,
       startedAt: Date.parse(sess.startedAt),
+      deload: !!sess.deload,
       cardio: cardioVM('warmup'),
       finisher: cardioVM('finisher'),
       finisherOffer: w.hasFinisher ? null : finisherOffer,
@@ -197,10 +207,12 @@ export function useUi() {
           slotId: se.slotId,
           exerciseId: se.exerciseId,
           name: e.exercise.name,
-          targetSets: se.target.sets,
+          // a deload session halves the programmed sets (core prefills that many)
+          targetSets: sess.deload ? deloadSets(se.target.sets, state.progressionRules.deload?.setReductionPct) : se.target.sets,
           targetReps: repsText(se.target.repRange),
           lastSets: lastSets(e.last?.sets),
           hint: hintText(e.progression, w.unit),
+          ...hintKind(e.progression),
           swapped: e.swapped,
           restSec: se.restSec,
           sets: se.sets.map((st) => ({ weight: st.weight, reps: st.reps, done: st.done })),
@@ -288,6 +300,7 @@ export function useUi() {
     history,
     loggedExercises,
     cardioMinutes,
+    deload: deloadVM(dl.status),
     /** True once core has loaded persisted data; every action below is a no-op (or rejects) until then. */
     ready: state.status === 'ready',
 
@@ -321,6 +334,8 @@ export function useUi() {
     },
     addFinisher: () => { w.addFinisher(); },
     removeFinisher: () => { w.removeFinisher(); },
+    startDeload: () => { dl.startDeload(); },
+    endDeload: () => { dl.endDeload(); },
     getSwaps: (slotId: string): SwapOption[] => {
       const e = entryBySlot.get(slotId);
       if (!e) return [];

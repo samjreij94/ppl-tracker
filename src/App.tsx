@@ -95,13 +95,14 @@ export default function App() {
         bodyweight={ui.bodyweight} onLogBodyweight={ui.logBodyweight} />
     );
   } else if (tab === 'settings') {
-    screen = <SettingsScreen settings={settings} onChange={ui.updateSettings} onExport={ui.exportFile} onImport={ui.importText} />;
+    screen = <SettingsScreen settings={settings} onChange={ui.updateSettings} onExport={ui.exportFile} onImport={ui.importText}
+      deload={ui.deload} onEndDeload={ui.endDeload} />;
   } else if (summary) {
     screen = <SummaryScreen summary={summary} unit={unit} onDone={() => setSummary(null)} />;
   } else if (active) {
     screen = (
       <WorkoutScreen
-        dayName={active.dayName} unit={unit} startedAt={active.startedAt} exercises={active.exercises}
+        dayName={active.dayName} unit={unit} startedAt={active.startedAt} deload={active.deload} exercises={active.exercises}
         cardio={active.cardio} finisher={active.finisher} finisherOffer={active.finisherOffer} timers={timers}
         prFlash={prFlash}
         onCardioTimer={(role, t) => setTimers((m) => ({ ...m, [role]: t }))}
@@ -118,7 +119,7 @@ export default function App() {
     );
   } else {
     screen = <TodayScreen today={ui.today} unit={unit} bodyweightToday={ui.bodyweight.today} onStart={() => ui.start()}
-      onLogBodyweight={() => { setTab('progress'); window.scrollTo(0, 0); }} />;
+      onLogBodyweight={() => { setTab('progress'); window.scrollTo(0, 0); }} onStartDeload={ui.startDeload} />;
   }
 
   return (
