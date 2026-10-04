@@ -16,6 +16,8 @@ export default defineConfig({
       includeAssets: ['icons/*.png', 'icons/*.svg', 'manifest.webmanifest'],
       workbox: {
         globPatterns: ['**/*.{js,css,html,png,svg,webmanifest,json}'],
+        // iOS reads launch images at add-to-home-screen time; no need to precache ~80 KB of splashes.
+        globIgnores: ['splash/**'],
         navigateFallback: 'index.html',
         cleanupOutdatedCaches: true,
         clientsClaim: true,
