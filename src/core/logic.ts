@@ -735,7 +735,9 @@ export function deloadDue(state: CoreState, now: Date = new Date()): DeloadStatu
       reason: null,
     };
   }
-  const trainedSince = anchor ? finished.some((s) => !s.deload && (s.finishedAt ?? '') > anchor) : false;
+  // ≥ (not >): a session can start and finish in the same millisecond (fast clients/tests), and the
+  // anchor may be that very session's startedAt. Deload sessions never count.
+  const trainedSince = anchor ? finished.some((s) => !s.deload && (s.finishedAt ?? '') >= anchor) : false;
   if (weeksSinceLast !== null && trainedSince && weeksSinceLast >= dueAfterWeeks) {
     return { ...base, active: false, due: true, reason: `${weeksSinceLast} weeks since ${dl.lastEndedAt || lastDeloadSession ? 'last deload' : 'you started'}` };
   }

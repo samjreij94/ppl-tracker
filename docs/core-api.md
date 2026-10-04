@@ -143,7 +143,7 @@ Additive exports in phase 2: `plannedSets`, `prefillSets`, `convertDistance`, `c
     `weeksSinceLast` = whole weeks since `lastEndedAt` (else the newest deload session, else the first session; null with
     none). `dueAfterWeeks` = **5 under the fat-loss cut** (`cutAdjustments.deloadNote` "around every 5-6 weeks"),
     else `deload.frequencyWeeks.min` = **6**. `due` when `weeksSinceLast ≥ dueAfterWeeks` and there has been ≥ 1
-    non-deload session since the anchor (reason `"6 weeks since last deload"` / `"5 weeks since you started"`), or
+    non-deload session finished at or after the anchor (reason `"6 weeks since last deload"` / `"5 weeks since you started"`), or
     early when **≥ 3 exercises** trained in the last 14 days currently have a `reduceLoad`/`dropSet` hint (seed trigger;
     reason `"3 exercises stalled in the last 2 weeks"`). Never due while active. Due is advisory: nothing auto-starts.
 - **Per-session PRs**: `finishSession` stores its returned PRs on `session.prs` (computed vs prior history at finish time,

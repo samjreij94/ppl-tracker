@@ -206,6 +206,17 @@ describe('deload protocol', () => {
     expect(core.getDeloadStatus()).toMatchObject({ due: true, weeksSinceLast: 6, reason: '6 weeks since last deload' });
   });
 
+  it('deloadDue: a session that started and finished in the same millisecond still counts (regression: flaky UI deload test)', async () => {
+    let t = Date.parse('2026-08-01T10:00:00Z');
+    const frozen = () => new Date(t); // clock does NOT advance between startSession and finishSession
+    const { core } = await makeCore({ now: frozen });
+    runSession(core, 'push-a', { [BENCH]: [[135, 8]] });
+    const s = getSessions(core.getState())[0];
+    expect(s.finishedAt).toBe(s.startedAt);
+    t += 42 * DAY;
+    expect(core.getDeloadStatus()).toMatchObject({ due: true, weeksSinceLast: 6 });
+  });
+
   it('deloadDue early trigger: 3+ exercises stalled within 2 weeks', async () => {
     const c = manualClock();
     const { core } = await makeCore({ now: c.now });
