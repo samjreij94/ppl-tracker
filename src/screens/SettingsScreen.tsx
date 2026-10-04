@@ -1,7 +1,7 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Stepper } from '../components/Stepper';
-import type { DeloadVM, SettingsVM } from '../ui/types';
+import { EXPERIENCE_INFO, GOAL_INFO, type DeloadVM, type Experience, type GoalKind, type ProfileVM, type SettingsVM } from '../ui/types';
 
 interface Props {
   settings: SettingsVM;
@@ -10,12 +10,23 @@ interface Props {
   onImport: (text: string) => Promise<void>;
   deload?: DeloadVM;
   onEndDeload?: () => void;
+  profile?: ProfileVM;
+  /** False until core stores name/experience (TODO(core)); those fields are then read-only. */
+  profileSupported?: boolean;
+  onProfileChange?: (patch: Partial<{ name: string; goal: GoalKind; experience: Experience }>) => void;
 }
 
-export function SettingsScreen({ settings, onChange, onExport, onImport, deload, onEndDeload }: Props) {
+export function SettingsScreen({ settings, onChange, onExport, onImport, deload, onEndDeload, profile, profileSupported = true, onProfileChange }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState<{ name: string; text: string } | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [nameDraft, setNameDraft] = useState(profile?.name ?? '');
+  useEffect(() => setNameDraft(profile?.name ?? ''), [profile?.name]);
+  const commitName = () => {
+    const n = nameDraft.trim();
+    if (n && n !== profile?.name) onProfileChange?.({ name: n });
+    else setNameDraft(profile?.name ?? '');
+  };
 
   const pick = async (f: File | undefined) => {
     if (!f) return;
@@ -31,7 +42,35 @@ export function SettingsScreen({ settings, onChange, onExport, onImport, deload,
         <h1>Preferences</h1>
       </header>
 
-      <div className="card" style={{ padding: '4px 16px' }}>
+      <h2 className="section" style={{ marginTop: 0 }}>Profile</h2>
+      <div className="card" style={{ padding: '4px 16px' }} data-testid="settings-profile">
+        {profile && (
+          <>
+            <label className="setting setting-col">
+              <span className="k">Name</span>
+              <input className="name-input" data-testid="profile-name" value={nameDraft} maxLength={30} autoComplete="given-name" autoCapitalize="words"
+                enterKeyHint="done" disabled={!profileSupported} placeholder={profileSupported ? 'First name' : 'Available after the next update'}
+                onChange={(e) => setNameDraft(e.target.value)} onBlur={commitName} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
+            </label>
+            <div className="setting setting-col">
+              <div className="k">Goal</div>
+              <div className="seg" role="group" aria-label="Goal">
+                {(Object.keys(GOAL_INFO) as GoalKind[]).map((g) => (
+                  <button key={g} aria-pressed={profile.goal === g} onClick={() => onProfileChange?.({ goal: g })}>{GOAL_INFO[g].short}</button>
+                ))}
+              </div>
+              <div className="dim" style={{ fontSize: 13 }}>{GOAL_INFO[profile.goal].desc}</div>
+            </div>
+            <div className="setting setting-col">
+              <div className="k">Experience</div>
+              <div className="seg" role="group" aria-label="Experience">
+                {(Object.keys(EXPERIENCE_INFO) as Experience[]).map((x) => (
+                  <button key={x} aria-pressed={profile.experience === x} disabled={!profileSupported} onClick={() => onProfileChange?.({ experience: x })}>{EXPERIENCE_INFO[x].title}</button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
         <div className="setting">
           <div className="k">Units</div>
           <div className="seg" role="group" aria-label="Units">
@@ -46,6 +85,10 @@ export function SettingsScreen({ settings, onChange, onExport, onImport, deload,
             <button aria-pressed={settings.schedule === 6} onClick={() => onChange({ schedule: 6 })}>6 days</button>
           </div>
         </div>
+      </div>
+
+      <h2 className="section">Workout</h2>
+      <div className="card" style={{ padding: '4px 16px' }}>
         <div className="setting">
           <div className="k">Default rest (sec)<div className="dim num" style={{ fontSize: 13, fontWeight: 400 }}>{Math.floor(settings.restSec / 60)}:{String(settings.restSec % 60).padStart(2, '0')} min</div></div>
           <div style={{ width: 170 }}>

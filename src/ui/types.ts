@@ -7,6 +7,38 @@ export type Unit = 'lb' | 'kg';
 export type CardioKind = 'incline-treadmill' | 'flat-treadmill' | 'peloton';
 export type Metric = 'e1rm' | 'top' | 'volume';
 export type Schedule = 3 | 6;
+export type GoalKind = 'fat-loss' | 'build-muscle' | 'general-strength';
+export type Experience = 'beginner' | 'intermediate' | 'advanced';
+
+export const GOAL_INFO: Record<GoalKind, { title: string; desc: string; label: string; short: string }> = {
+  'fat-loss': { title: 'Fat loss', desc: 'Keep your strength while losing 0.5–1% bodyweight a week.', label: 'Fat-loss phase', short: 'Fat loss' },
+  'build-muscle': { title: 'Build muscle', desc: 'Add size with steady progressive overload.', label: 'Build muscle', short: 'Muscle' },
+  'general-strength': { title: 'General strength', desc: 'Get stronger on the big lifts, no scale target.', label: 'Strength', short: 'Strength' },
+};
+export const EXPERIENCE_INFO: Record<Experience, { title: string; desc: string }> = {
+  beginner: { title: 'Beginner', desc: 'Less than a year of regular lifting.' },
+  intermediate: { title: 'Intermediate', desc: '1–3 years, comfortable with the main lifts.' },
+  advanced: { title: 'Advanced', desc: '3+ years of structured training.' },
+};
+export const isGoalKind = (g: string): g is GoalKind => g in GOAL_INFO;
+
+/** Who is training (one per device). */
+export interface ProfileVM {
+  name: string;
+  goal: GoalKind;
+  experience: Experience | null;
+}
+
+/** Everything the first-run onboarding collects. */
+export interface OnboardingInput {
+  name: string;
+  goal: GoalKind;
+  experience: Experience;
+  unit: Unit;
+  schedule: Schedule;
+  /** Optional starting bodyweight (display unit). */
+  bodyweight?: number;
+}
 
 export const CARDIO_LABEL: Record<CardioKind, string> = {
   'incline-treadmill': 'Incline treadmill',
@@ -60,6 +92,8 @@ export interface BodyweightVM {
   status: BodyweightStatus;
   target: { min: number; max: number };
   goalLabel: string;
+  /** Fat-loss goal only: show the weekly-loss target and on-track chip. */
+  showRate: boolean;
 }
 
 export interface SetVM {
@@ -97,6 +131,8 @@ export interface TodayVM {
   stepRange?: { min: number; max: number };
   exercises: ExerciseVM[];
   deload?: DeloadVM;
+  /** Fat-loss only: the zone-2 finisher is offered by default. */
+  finisherByDefault?: boolean;
 }
 
 /** Deload week status (core DeloadStatus, display-ready). */

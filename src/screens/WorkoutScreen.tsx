@@ -13,6 +13,8 @@ interface Props {
   cardio: CardioVM | null;
   finisher: CardioVM | null;
   finisherOffer: FinisherOfferVM | null;
+  /** Fat-loss goal: offer the finisher as a full card; other goals get a quiet optional button. */
+  finisherByDefault?: boolean;
   timers: Record<CardioRole, CardioTimer>;
   exercises: ExerciseVM[];
   prFlash: { exIdx: number; setIdx: number } | null;
@@ -65,7 +67,9 @@ export function WorkoutScreen(p: Props) {
           <CardioCard cardio={p.finisher} unit={p.unit} timer={p.timers.finisher} onTimer={(t) => p.onCardioTimer('finisher', t)}
             onChange={(c) => p.onCardioChange('finisher', c)} onToggleDone={() => p.onCardioDone('finisher')} onRemove={p.onRemoveFinisher} />
         ) : p.finisherOffer ? (
-          <FinisherOffer offer={p.finisherOffer} onAdd={p.onAddFinisher} />
+          p.finisherByDefault === false
+            ? <button type="button" className="btn btn-ghost finisher-quiet" data-testid="add-finisher" onClick={p.onAddFinisher}>+ Add optional cardio finisher</button>
+            : <FinisherOffer offer={p.finisherOffer} onAdd={p.onAddFinisher} />
         ) : null}
       </div>
 

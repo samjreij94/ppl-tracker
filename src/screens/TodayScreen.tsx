@@ -12,10 +12,14 @@ interface Props {
   onStart: () => void;
   onLogBodyweight: () => void;
   onStartDeload?: () => void;
+  /** Profile name for the greeting (empty → no greeting). */
+  name?: string;
 }
 
+const greet = (h: number) => (h < 5 ? 'Hi' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening');
+
 /** Next day in the rotation + exercise preview + big Start button (bottom third). */
-export function TodayScreen({ today, unit, resuming, bodyweightToday, onStart, onLogBodyweight, onStartDeload }: Props) {
+export function TodayScreen({ today, unit, resuming, bodyweightToday, onStart, onLogBodyweight, onStartDeload, name }: Props) {
   const [confirmDeload, setConfirmDeload] = useState(false);
   if (!today) return <div className="screen"><div className="empty">Loading…</div></div>;
   const dl = today.deload;
@@ -23,6 +27,7 @@ export function TodayScreen({ today, unit, resuming, bodyweightToday, onStart, o
   return (
     <div className="screen has-footer" data-testid="today">
       <header className="screen-header">
+        {name && <div className="greeting" data-testid="greeting">{greet(new Date().getHours())}, {name}</div>}
         <div className="eyebrow">{today.dayLabel ?? 'Next up'}</div>
         <h1>{today.dayName}</h1>
         <div className="sub num">{today.exercises.length} exercises · {setCount} sets · cardio warm-up</div>
@@ -80,7 +85,7 @@ export function TodayScreen({ today, unit, resuming, bodyweightToday, onStart, o
             </div>
           </div>
         ))}
-        {today.finisherOffer && (
+        {today.finisherOffer && today.finisherByDefault !== false && (
           <div className="card ex-card finisher-preview" data-testid="today-finisher">
             <div className="eyebrow">Optional finisher · {today.finisherOffer.intensity.replace('-', ' ')}</div>
             <div className="name">{cardioLabel(today.finisherOffer.kind, today.finisherOffer.name)} · {today.finisherOffer.minutes} min</div>

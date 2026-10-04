@@ -41,7 +41,7 @@ import {
   type Unit,
   type WorkoutSession,
 } from '../core';
-import { fmtNum, type ActiveVM, type BodyweightVM, type CardioVM, type DeloadVM, type FinisherOfferVM, type ExerciseVM, type HistoryItem, type LastSet, type PrHit, type SeriesPoint, type SettingsVM, type SummaryVM, type SwapOption, type TodayVM } from './types';
+import { fmtNum, type ActiveVM, type BodyweightVM, type CardioVM, type DeloadVM, type Experience, type FinisherOfferVM, GOAL_INFO, isGoalKind, type GoalKind, type OnboardingInput, type ProfileVM, type ExerciseVM, type HistoryItem, type LastSet, type PrHit, type SeriesPoint, type SettingsVM, type SummaryVM, type SwapOption, type TodayVM } from './types';
 
 /* ---------- formatting ---------- */
 const repsText = (r: RepRange) => (r.min === r.max ? `${r.min}` : `${r.min}–${r.max}`);
@@ -51,6 +51,12 @@ const lastSets = (sets: readonly SetLog[] | undefined): LastSet[] => {
   return (done.length ? done : []).map((s) => ({ weight: s.weight, reps: s.reps }));
 };
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+/** Shapes requested from core (Dealer); read defensively until they land. TODO(core): replace with core types. */
+type CoreProfileExt = { profile?: { name?: string; experience?: Experience }; onboarded?: boolean; onboardedAt?: string | null };
+type CoreOnboardingExt = {
+  completeOnboarding?: (input: { name: string; goal: GoalKind; experience: Experience; unit: OnboardingInput['unit']; schedule: OnboardingInput['schedule'] }) => unknown;
+  updateProfile?: (patch: { name?: string; experience?: Experience }) => unknown;
+};
 const hintKind = (p: ProgressionHint | null | undefined) => (p?.action === 'deload' ? ({ hintKind: 'deload' } as const) : {});
 const deloadVM = (d: DeloadStatus): DeloadVM => ({ active: d.active, due: d.due, daysLeft: d.daysLeft, reason: d.reason, weeksSinceLast: d.weeksSinceLast });
 
@@ -125,6 +131,22 @@ export function useUi() {
   const dt = useDataTransfer();
   const bwh = useBodyweight();
   const dl = useDeload();
+
+  /* ---------- profile / onboarding ----------
+   * TODO(core): Dealer is adding `settings.profile {name, experience}`, `settings.onboardedAt` and
+   * `completeOnboarding()` (existing installs migrate as onboarded + fat-loss). Until they land:
+   *  - goal.type persists today via updateSettings({goal: {type}}) (core's GoalType accepts any string);
+   *  - name / experience / onboarded have NO core storage and SettingsPatch rejects those keys under
+   *    strict types, so nothing is written for them and onboarding stays hidden (feature-detected
+   *    below), so a fresh install can't loop through it on every launch. No storage outside core.
+   */
+  const ext = s.settings as typeof s.settings & CoreProfileExt;
+  const coreExt = core as typeof core & CoreOnboardingExt;
+  const profileSupported = 'profile' in ext || 'onboarded' in ext || 'onboardedAt' in ext;
+  const onboarded = !profileSupported || ext.onboarded === true || !!ext.onboardedAt;
+  const goalKind: GoalKind = isGoalKind(s.settings.goal.type) ? s.settings.goal.type : 'fat-loss';
+  const profile: ProfileVM = { name: ext.profile?.name?.trim() ?? '', goal: goalKind, experience: ext.profile?.experience ?? null };
+  const isFatLoss = goalKind === 'fat-loss';
   const unit = s.settings.unit;
   const effort = (s.finisherConfig?.effortNote ?? w.finisher?.effortNote);
 
@@ -168,8 +190,9 @@ export function useUi() {
         sets: [],
       })),
       deload: deloadVM(tv.deload),
+      finisherByDefault: isFatLoss,
     };
-  }, [t.today, t.days.length, unit, finisherOffer, s.activity]);
+  }, [t.today, t.days.length, unit, finisherOffer, s.activity, isFatLoss]);
 
   const entryBySlot = useMemo(() => new Map(w.entries.map((e) => [e.entry.slotId, e])), [w.entries]);
 
@@ -286,7 +309,8 @@ export function useUi() {
       weeklyLoss: tr.weeklyRate?.lossPerWeek ?? null,
       status: tr.status,
       target: tr.target,
-      goalLabel: bwh.goal.type === 'fat-loss' ? 'Fat-loss phase' : `${bwh.goal.type} phase`,
+      goalLabel: isGoalKind(bwh.goal.type) ? GOAL_INFO[bwh.goal.type].label : 'Bodyweight trend',
+      showRate: bwh.goal.type === 'fat-loss',
     };
   }, [bwh.trend, bwh.entries, bwh.goal, unit]);
 
@@ -301,6 +325,12 @@ export function useUi() {
     loggedExercises,
     cardioMinutes,
     deload: deloadVM(dl.status),
+    profile,
+    /** Core can store name/experience/onboarded (Dealer's profile fields have landed). */
+    profileSupported,
+    /** Only meaningful once ready: false → show first-run onboarding. */
+    onboarded,
+    isFatLoss,
     /** True once core has loaded persisted data; every action below is a no-op (or rejects) until then. */
     ready: state.status === 'ready',
 
@@ -334,6 +364,21 @@ export function useUi() {
     },
     addFinisher: () => { w.addFinisher(); },
     removeFinisher: () => { w.removeFinisher(); },
+    completeOnboarding: (input: OnboardingInput) => {
+      if (coreExt.completeOnboarding) {
+        coreExt.completeOnboarding({ name: input.name, goal: input.goal, experience: input.experience, unit: input.unit, schedule: input.schedule });
+      } else {
+        // TODO(core): no completeOnboarding yet: persist what core accepts; name/experience are dropped.
+        s.updateSettings({ unit: input.unit, schedule: input.schedule, goal: { type: input.goal } });
+      }
+      if (input.bodyweight != null) bwh.logBodyweight({ weight: input.bodyweight, unit: input.unit });
+    },
+    updateProfile: (patch: Partial<{ name: string; goal: GoalKind; experience: Experience }>) => {
+      if (patch.goal) s.updateSettings({ goal: { type: patch.goal } });
+      const p = { ...(patch.name != null && { name: patch.name.trim() }), ...(patch.experience && { experience: patch.experience }) };
+      if (Object.keys(p).length && coreExt.updateProfile) coreExt.updateProfile(p);
+      // TODO(core): without core profile support, name/experience edits are not persisted.
+    },
     startDeload: () => { dl.startDeload(); },
     endDeload: () => { dl.endDeload(); },
     getSwaps: (slotId: string): SwapOption[] => {

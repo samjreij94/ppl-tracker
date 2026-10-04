@@ -10,6 +10,7 @@ import { WorkoutScreen, type CardioRole } from './screens/WorkoutScreen';
 import { SummaryScreen } from './screens/SummaryScreen';
 import { ProgressScreen } from './screens/ProgressScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
+import { OnboardingScreen } from './screens/OnboardingScreen';
 import { useUi } from './ui/adapter';
 import type { Metric, SummaryVM } from './ui/types';
 import './ui/styles/app.css';
@@ -87,6 +88,18 @@ export default function App() {
     );
   }
 
+  // First run: decided only after core is ready, so existing (onboarded) installs never see a flash.
+  if (!ui.onboarded) {
+    return (
+      <div className="app">
+        <OnboardingScreen
+          initial={{ name: ui.profile.name, experience: ui.profile.experience, unit: settings.unit, schedule: settings.schedule }}
+          onComplete={(input) => { ui.completeOnboarding(input); setTab('today'); window.scrollTo(0, 0); }}
+        />
+      </div>
+    );
+  }
+
   let screen;
   if (tab === 'progress') {
     screen = (
@@ -96,14 +109,15 @@ export default function App() {
     );
   } else if (tab === 'settings') {
     screen = <SettingsScreen settings={settings} onChange={ui.updateSettings} onExport={ui.exportFile} onImport={ui.importText}
-      deload={ui.deload} onEndDeload={ui.endDeload} />;
+      deload={ui.deload} onEndDeload={ui.endDeload}
+      profile={ui.profile} profileSupported={ui.profileSupported} onProfileChange={ui.updateProfile} />;
   } else if (summary) {
     screen = <SummaryScreen summary={summary} unit={unit} onDone={() => setSummary(null)} />;
   } else if (active) {
     screen = (
       <WorkoutScreen
         dayName={active.dayName} unit={unit} startedAt={active.startedAt} deload={active.deload} exercises={active.exercises}
-        cardio={active.cardio} finisher={active.finisher} finisherOffer={active.finisherOffer} timers={timers}
+        cardio={active.cardio} finisher={active.finisher} finisherOffer={active.finisherOffer} finisherByDefault={ui.isFatLoss} timers={timers}
         prFlash={prFlash}
         onCardioTimer={(role, t) => setTimers((m) => ({ ...m, [role]: t }))}
         onCardioChange={(role, patch) => ui.updateCardio(role, patch)}
@@ -119,7 +133,7 @@ export default function App() {
     );
   } else {
     screen = <TodayScreen today={ui.today} unit={unit} bodyweightToday={ui.bodyweight.today} onStart={() => ui.start()}
-      onLogBodyweight={() => { setTab('progress'); window.scrollTo(0, 0); }} onStartDeload={ui.startDeload} />;
+      onLogBodyweight={() => { setTab('progress'); window.scrollTo(0, 0); }} onStartDeload={ui.startDeload} name={ui.profile.name} />;
   }
 
   return (
