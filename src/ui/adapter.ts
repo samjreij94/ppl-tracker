@@ -67,7 +67,7 @@ const pickMetrics = (m: Partial<CardioVM> | CardioMetrics | undefined): CardioMe
   if (m) METRIC_KEYS.forEach((k) => { if (m[k] != null) out[k] = m[k]; });
   return out;
 };
-/** Last logged metrics for this exercise+role (core doesn't prefill metrics into a new session entry). */
+/** Fallback only: core prefills entry.metrics from the last done block (phase 2); used if an entry has none. */
 const lastMetrics = (state: CoreState, exerciseId: string, role: CardioRole): CardioMetrics | undefined =>
   getCardioHistory(state, { exerciseId, role }).find((h) => h.metrics)?.metrics;
 const shortEffort = (note?: string) => {
@@ -116,7 +116,7 @@ export function useUi() {
       dayName: tv.day.name,
       dayLabel: `Day ${tv.rotationIndex + 1} of ${t.days.length || 6}${tv.isNext ? ' · next up' : ''}`,
       cardio: c && c.kind === 'cardio'
-        ? { kind: c.exercise.id, name: c.exercise.name, minutes: c.durationMin, done: false, role: 'warmup', ...pickMetrics(c.last?.metrics) }
+        ? { kind: c.exercise.id, name: c.exercise.name, minutes: c.durationMin, done: false, role: 'warmup', ...pickMetrics(c.metrics ?? c.last?.metrics) }
         : { kind: 'incline-treadmill', minutes: 10, done: false },
       hasCardio: !!c,
       finisherOffer,
@@ -126,7 +126,7 @@ export function useUi() {
         slotId: sl.slot.id,
         exerciseId: sl.exercise.id,
         name: sl.exercise.name,
-        targetSets: sl.target.sets,
+        targetSets: sl.plannedSets ?? sl.target.sets, // cut dropSet can plan fewer sets
         targetReps: repsText(sl.target.repRange),
         lastSets: lastSets(sl.last?.sets),
         hint: hintText(sl.progression, unit),
