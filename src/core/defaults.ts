@@ -66,6 +66,7 @@ export function defaultSettings(overrides: Partial<Settings> = {}): Settings {
     finisher: { autoAdd: false },
     goal: structuredClone(DEFAULT_GOAL),
     deload: { active: false, weekLength: DEFAULT_DELOAD_WEEK_LENGTH },
+    profile: { name: '' },
     ...overrides,
   };
 }

@@ -40,6 +40,12 @@ import type {
   Equipment,
   Exercise,
   ExerciseCategory,
+  Experience,
+  Goal,
+  GoalType,
+  Profile,
+  Schedule,
+  Unit,
   Increments,
   Muscle,
   PRResult,
@@ -77,13 +83,29 @@ export interface CustomExerciseInput {
 }
 
 /** Deep-partial settings patch for `updateSettings`. */
-export type SettingsPatch = Partial<Omit<Settings, 'increments' | 'cardio' | 'finisher' | 'goal' | 'deload'>> & {
+export type SettingsPatch = Partial<Omit<Settings, 'increments' | 'cardio' | 'finisher' | 'goal' | 'deload' | 'profile'>> & {
   increments?: { [U in keyof Increments]?: Partial<Increments[U]> };
   cardio?: Partial<Settings['cardio']>;
   finisher?: Partial<Settings['finisher']>;
   goal?: Partial<Settings['goal']>;
   deload?: Partial<Settings['deload']>;
+  profile?: Partial<Profile>;
 };
+
+/** Input for `completeOnboarding`. `goal` is a goal type string (or a partial Goal with `type`). */
+export interface OnboardingInput {
+  name: string;
+  goal: GoalType | (Partial<Goal> & { type: GoalType });
+  experience: Experience;
+  unit: Unit;
+  schedule: Schedule;
+}
+
+/** Patch for `updateProfile`. */
+export interface ProfilePatch {
+  name?: string;
+  experience?: Experience;
+}
 
 /** Input for `logBodyweight`. `date` defaults to today (local), `unit` to settings.unit. */
 export interface BodyweightInput {
@@ -178,6 +200,15 @@ export interface Core {
   updateSettings(patch: SettingsPatch): Settings;
 
   /**
+   * First-run setup: sets profile {name (trimmed), experience}, goal.type, unit, schedule and
+   * `onboardedAt = now` in ONE state update / ONE settings write. Returns the new Settings.
+   * Invalid unit/schedule/experience values are ignored (current values kept).
+   */
+  completeOnboarding(input: OnboardingInput): Settings;
+  /** Update name (trimmed) and/or experience. Returns the new Settings. */
+  updateProfile(patch: ProfilePatch): Settings;
+
+  /**
    * Start a deload week now (`settings.deload = {active: true, startedAt: now, weekLength}`).
    * Sessions STARTED while active are flagged `deload: true` and prefilled with
    * ceil(sets × 50%) sets (≥ 1) at the last working weight −10%. No-op if already active.
@@ -224,8 +255,23 @@ function mergeSettings(base: Settings, patch: SettingsPatch | undefined): Settin
     finisher: { ...base.finisher, ...patch.finisher },
     goal: { ...base.goal, ...patch.goal },
     deload: { ...base.deload, ...patch.deload },
+    profile: { ...base.profile, ...patch.profile },
     permanentSwaps: patch.permanentSwaps ?? base.permanentSwaps,
   };
+}
+
+const EXPERIENCES: readonly string[] = ['beginner', 'intermediate', 'advanced'];
+const isExperience = (v: unknown): v is Experience => typeof v === 'string' && EXPERIENCES.includes(v);
+
+/**
+ * Migration for data written before onboarding existed: mark as onboarded (`at`) and default
+ * goal.type to 'fat-loss' when the STORED settings had no goal type.
+ */
+function migrateOnboarded(settings: Settings, stored: unknown, at: string): Settings {
+  if (settings.onboardedAt) return settings;
+  const storedGoal = typeof stored === 'object' && stored !== null ? (stored as { goal?: { type?: unknown } }).goal : undefined;
+  const hasType = typeof storedGoal?.type === 'string' && storedGoal.type !== '';
+  return { ...settings, onboardedAt: at, goal: hasType ? settings.goal : { ...settings.goal, type: 'fat-loss' } };
 }
 
 function buildGroups(seedGroups: SubstitutionGroup[], custom: Exercise[]): Record<string, SubstitutionGroup> {
@@ -353,14 +399,25 @@ export function createCore(opts: CreateCoreOptions): Core {
           opts.storage.get<WorkoutSession | null>(STORAGE_KEYS.active),
           opts.storage.get<BodyweightEntry[]>(STORAGE_KEYS.bodyweight),
         ]);
+        // Existing install (any stored user data) without onboardedAt → migrate as onboarded.
+        // A truly fresh install (nothing stored) stays un-onboarded.
+        const hasData =
+          (settings !== undefined && settings !== null) ||
+          !!sessions?.length ||
+          !!custom?.length ||
+          !!bodyweight?.length ||
+          !!active;
+        let merged = mergeSettings(baseSettings, settings as SettingsPatch | undefined);
+        const migrate = hasData && !merged.onboardedAt;
+        if (migrate) merged = migrateOnboarded(merged, settings, now().toISOString());
         setState({
           status: opts.seed.ok ? 'ready' : 'error',
-          settings: mergeSettings(baseSettings, settings as SettingsPatch | undefined),
+          settings: merged,
           sessions: sessions ?? [],
           active: active ?? null,
           bodyweight: bodyweight ?? [],
           ...compose(custom ?? []),
-        });
+        }, migrate ? ['settings'] : []);
         autoEndDeload();
       })());
     },
@@ -620,6 +677,39 @@ export function createCore(opts: CreateCoreOptions): Core {
       return settings;
     },
 
+    completeOnboarding(input) {
+      const cur = state.settings;
+      const g = typeof input.goal === 'string' ? { type: input.goal } : (input.goal ?? {});
+      const settings: Settings = {
+        ...cur,
+        unit: input.unit === 'lb' || input.unit === 'kg' ? input.unit : cur.unit,
+        schedule: input.schedule === 3 || input.schedule === 6 ? input.schedule : cur.schedule,
+        goal: { ...cur.goal, ...g, type: typeof g.type === 'string' && g.type ? g.type : cur.goal.type },
+        profile: {
+          ...cur.profile,
+          name: typeof input.name === 'string' ? input.name.trim() : cur.profile.name,
+          ...(isExperience(input.experience) ? { experience: input.experience } : {}),
+        },
+        onboardedAt: now().toISOString(),
+      };
+      setState({ settings }, ['settings']);
+      return settings;
+    },
+
+    updateProfile(patch) {
+      const cur = state.settings;
+      const settings: Settings = {
+        ...cur,
+        profile: {
+          ...cur.profile,
+          ...(typeof patch.name === 'string' ? { name: patch.name.trim() } : {}),
+          ...(isExperience(patch.experience) ? { experience: patch.experience } : {}),
+        },
+      };
+      setState({ settings }, ['settings']);
+      return settings;
+    },
+
     startDeload(o = {}) {
       autoEndDeload();
       const dl = state.settings.deload;
@@ -684,7 +774,7 @@ export function createCore(opts: CreateCoreOptions): Core {
       if (sessions.length !== file.sessions.length) warnings.push('unfinished sessions in "sessions" were skipped');
       setState(
         {
-          settings: mergeSettings(baseSettings, file.settings as SettingsPatch),
+          settings: migrateOnboarded(mergeSettings(baseSettings, file.settings as SettingsPatch), file.settings, now().toISOString()),
           sessions,
           active: file.active,
           bodyweight: [...file.bodyweight].sort((a, b) => (a.date < b.date ? -1 : 1)),

@@ -2,7 +2,7 @@
  * PPL Tracker core — public API. The UI imports ONLY from here.
  *
  * - Hooks (recommended for UI): useToday, useWorkout, useExerciseHistory,
- *   useExercises, useSettings, useDeload, useDataTransfer (+ useCore, useCoreState, CoreProvider).
+ *   useExercises, useSettings, useDeload, useOnboarding, useDataTransfer (+ useCore, useCoreState, CoreProvider).
  * - Imperative: `getCore()` returns the app-wide store with every action
  *   (startSession, logSet, …) and `getState()/subscribe()`.
  * - Pure helpers: queries that take a `CoreState` (getToday(state), getPRs(state, id), …)
@@ -14,7 +14,7 @@
 
 // Types
 export type * from './types';
-export { CARDIO_GROUP_ID, CARDIO_SLOT_ID, EXERCISE_CATEGORIES, FINISHER_SLOT_ID } from './types';
+export { CARDIO_GROUP_ID, CARDIO_SLOT_ID, EXERCISE_CATEGORIES, EXPERIENCE_LEVELS, FINISHER_SLOT_ID, GOAL_TYPES } from './types';
 export type {
   ActiveEntryView,
   CardioHistoryItem,
@@ -39,6 +39,8 @@ export type {
   CustomExerciseInput,
   FinishResult,
   LogSetResult,
+  OnboardingInput,
+  ProfilePatch,
   SetPatch,
   SettingsPatch,
 } from './store';
@@ -52,13 +54,14 @@ export {
   useCoreState,
   useDataTransfer,
   useDeload,
+  useOnboarding,
   useExerciseHistory,
   useExercises,
   useSettings,
   useToday,
   useWorkout,
 } from './hooks';
-export type { UseBodyweight, UseDataTransfer, UseDeload, UseExerciseHistory, UseExercises, UseSettings, UseToday, UseWorkout } from './hooks';
+export type { UseBodyweight, UseDataTransfer, UseDeload, UseOnboarding, UseExerciseHistory, UseExercises, UseSettings, UseToday, UseWorkout } from './hooks';
 
 // Pure queries (take a CoreState snapshot)
 export {

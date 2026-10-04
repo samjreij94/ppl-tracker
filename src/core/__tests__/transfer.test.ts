@@ -25,9 +25,11 @@ const strip = (json: string) => {
 describe('export / import', () => {
   it('round trip is lossless (settings, custom exercises, sessions, active session, bodyweight)', async () => {
     const { core } = await populated();
+    core.updateSettings({ onboardedAt: '2026-09-01T00:00:00.000Z', profile: { name: 'Samir', experience: 'advanced' } }); // else import migration stamps onboardedAt
     const json = core.exportJSON();
     const parsed = JSON.parse(json);
     expect(parsed).toMatchObject({ app: 'ppl-tracker', version: 1 });
+    expect(parsed.settings).toMatchObject({ onboardedAt: '2026-09-01T00:00:00.000Z', profile: { name: 'Samir', experience: 'advanced' } });
     expect(parsed.bodyweight).toHaveLength(2);
     expect(parsed.customExercises).toHaveLength(1);
 

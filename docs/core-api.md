@@ -31,7 +31,10 @@ useExercises() => { exercises: Exercise[]; byId; groups: Record<id, Substitution
 useSettings() => { settings: Settings; goal: Goal; finisherConfig: FinisherConfig; activity: ActivityConfig;
   bodyweightLog: BodyweightLogConfig; updateSettings(patch: SettingsPatch): Settings; clearPermanentSwap(slotId);
   convertWeight(v, from, to); roundToIncrement(v, inc, mode?);
-  deload: DeloadStatus; startDeload(opts?: { weekLength? }): DeloadStatus; endDeload(): DeloadStatus }
+  deload: DeloadStatus; startDeload(opts?: { weekLength? }): DeloadStatus; endDeload(): DeloadStatus;
+  profile: Profile; onboarded: boolean; completeOnboarding(input: OnboardingInput): Settings; updateProfile(patch: ProfilePatch): Settings }
+useOnboarding() => { status; onboarded: boolean; onboardedAt?: string; profile: Profile;
+  completeOnboarding(input: OnboardingInput): Settings; updateProfile(patch: ProfilePatch): Settings }
 useDeload() => { status: DeloadStatus; startDeload(opts?: { weekLength? }): DeloadStatus; endDeload(): DeloadStatus }
 useBodyweight() => { entries: BodyweightEntry[] /* new→old */; trend: BodyweightTrend; config: BodyweightLogConfig; goal: Goal;
   logBodyweight({ date?: 'YYYY-MM-DD' /* default today */, weight, unit?, note? }): BodyweightEntry /* upsert per date */;
@@ -72,8 +75,9 @@ ActiveEntryView   { index; entry: SessionEntry; exercise; programmedExerciseId; 
 `CardioSlot {id:'cardio-warmup', kind:'cardio', exerciseId, durationMin, substitutionGroup:'cardio-warmup'}`,
 `WorkoutSession {id, programId, dayId, startedAt, finishedAt?, unit, entries, deload?: boolean, prs?: PRResult[]}`,
 `SessionEntry = StrengthEntry {kind:'strength', slotId, exerciseId, sets, target:{sets, repRange}, restSec} | CardioEntry {kind:'cardio', role:'warmup'|'finisher', slotId:'cardio-warmup'|'cardio-finisher', exerciseId, durationMin, done, timestamp?, metrics?}`,
-`SetLog {weight, reps, done, timestamp?}`, `Settings {unit, defaultRestSec, schedule: 3|6, increments, permanentSwaps, cardio:{enabled, defaultDurationMin}, finisher:{autoAdd}, goal: Goal, deload: {active, startedAt?, weekLength /* days, 7 */, lastEndedAt?}}`,
-`Goal {type:'fat-loss', targetLossPctBodyweightPerWeek:{min,max}, proteinGPerLbGoalBodyweight?}`, `BodyweightEntry {date:'YYYY-MM-DD', weight, unit, note?}`,
+`SetLog {weight, reps, done, timestamp?}`, `Settings {unit, defaultRestSec, schedule: 3|6, increments, permanentSwaps, cardio:{enabled, defaultDurationMin}, finisher:{autoAdd}, goal: Goal, deload: {active, startedAt?, weekLength /* days, 7 */, lastEndedAt?}, profile: {name, experience?}, onboardedAt?}`,
+`Goal {type:'fat-loss'|'build-muscle'|'general-strength', targetLossPctBodyweightPerWeek:{min,max}, proteinGPerLbGoalBodyweight?}`,
+`Experience = 'beginner'|'intermediate'|'advanced'`, `Profile {name: string, experience?: Experience}`, `BodyweightEntry {date:'YYYY-MM-DD', weight, unit, note?}`,
 `PRResult {kind:'e1rm'|'topSet'|'repsAtWeight', exerciseId, value, previous?, weight, reps, date?, sessionId?}`,
 `ExerciseSeriesPoint {date, sessionId, e1rm, topSet:{weight, reps}, volume}`,
 `ProgressionHint {exerciseId, action:'increase'|'addReps'|'hold'|'dropSet'|'reduceLoad'|'deload', newWeight?, increment?, targetReps?, newSets?, rules:'base'|'cut', message}`.
@@ -81,7 +85,7 @@ ActiveEntryView   { index; entry: SessionEntry; exercise; programmedExerciseId; 
 ## Imperative / pure
 
 `getCore()` → `Core` with all actions above + `getState()`, `subscribe()`, `init()`, `flush()`, `deleteSession(id)`, `exportJSON()`, `importJSON()`,
-`logBodyweight`, `deleteBodyweight`, `getBodyweightTrend()`, `startDeload(opts?)`, `endDeload()`, `getDeloadStatus()`.
+`logBodyweight`, `deleteBodyweight`, `getBodyweightTrend()`, `completeOnboarding(input)`, `updateProfile(patch)`, `startDeload(opts?)`, `endDeload()`, `getDeloadStatus()`.
 Pure (take a `CoreState`): `getToday(state, dayId?, now?)`, `deloadDue(state, now?)`, `deloadSets(sets, pct?)`,
 `finisherPrescription(finisherConfig, exercise, durationMin)`, `warmupPrescription(exercise, durationMin)`, `getDays`, `getProgression(state, id, target?)`, `getSwaps(state, id, slotId?)`,
 `getSessions(state, {exerciseId?, limit?})`, `getExerciseSeries`, `getPRs`, `getActiveEntries`, `getCardioHistory(state, {exerciseId?, role?})`,
@@ -159,3 +163,37 @@ Additive in phase 3: `Settings.deload`, `WorkoutSession.deload?`, `WorkoutSessio
 `finisherPrescription`, `warmupPrescription`, `DEFAULT_DELOAD_WEEK_LENGTH`; optional params `getToday(state, dayId?, now?)`,
 `exerciseHistory(sessions, id, unit, {excludeDeload?})`, `lastPerformance(state, id, {excludeDeload?})`,
 `suggestProgression({..., deload?})`.
+
+## Onboarding & goals (phase 4)
+
+- **Fields**: `Settings.profile: {name: string /* '' until set */, experience?: 'beginner'|'intermediate'|'advanced'}`,
+  `Settings.onboardedAt?: string` (ISO). A fresh install has no `onboardedAt` → show onboarding (after `status !== 'loading'`).
+  `experience` is optional in the type because a fresh/migrated install has not chosen one yet.
+- **`core.completeOnboarding({name, goal, experience, unit, schedule}): Settings`** — sets `profile.name` (trimmed),
+  `profile.experience`, `goal.type` (`goal` may be the type string or `{type, ...}`; the rest of `goal` is kept), `unit`,
+  `schedule` and `onboardedAt = now` in ONE state update and ONE settings write. Invalid unit/schedule/experience are
+  ignored (current values kept). Type: `OnboardingInput`.
+- **`core.updateProfile({name?, experience?}): Settings`** (type `ProfilePatch`). Everything stays editable via
+  `updateSettings` (deep patch: `{profile: {experience}}`, `{goal: {type}}`, `{onboardedAt}`).
+- **Hooks**: `useSettings()` adds `profile`, `onboarded`, `completeOnboarding`, `updateProfile`;
+  `useOnboarding() => {status, onboarded, onboardedAt?, profile, completeOnboarding, updateProfile}`.
+- **Experience is stored only** — it has no effect on prefill, progression, deload or anything else.
+- **Goal types** (`settings.goal.type`; `GOAL_TYPES`):
+  - `fat-loss` → cut rules (3-session stall, hold/dropSet then −5%, maintaining = success), deload due after **5** weeks,
+    bodyweight loss-rate verdict (`tooSlow`/`onTrack`/`tooFast`).
+  - `build-muscle`, `general-strength` (and any other string) → base rules (2-session stall → −10%, maintaining is NOT
+    success), deload due after **6** weeks, bodyweight trend WITHOUT a verdict: `BodyweightTrend.goalApplies = false` and
+    `status` stays the neutral `'insufficientData'` (weeklyRate/averages still computed). A new `'notApplicable'` status
+    member was NOT added because the UI's `BodyweightStatus` is a closed 4-member union assigned from `trend.status`;
+    use `goalApplies` instead.
+  - Rules are keyed off `settings.goal.type` (the seed's `goal` only provides the default).
+- **Migration** (so existing installs aren't re-prompted): on `init()`, if ANY user data is stored (settings, sessions,
+  custom exercises, bodyweight or an active session) and `onboardedAt` is missing → `onboardedAt = now` and
+  `goal.type = 'fat-loss'` if the stored settings had no goal type; persisted immediately. A truly fresh install (nothing
+  stored) is not written and stays un-onboarded. `importJSON` applies the same migration to files without `onboardedAt`
+  (files with it keep theirs, plus their profile and goal).
+
+Additive in phase 4: `Settings.profile`, `Settings.onboardedAt?`, types `Profile`, `Experience`, `OnboardingInput`,
+`ProfilePatch`, `UseOnboarding`; `GoalType` adds `'build-muscle' | 'general-strength'`; consts `GOAL_TYPES`,
+`EXPERIENCE_LEVELS`; `BodyweightTrend.goalApplies`; `SettingsPatch.profile?`; `Core.completeOnboarding`,
+`Core.updateProfile`; `useOnboarding`; `useSettings().profile/onboarded/completeOnboarding/updateProfile`.

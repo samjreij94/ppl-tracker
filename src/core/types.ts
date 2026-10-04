@@ -299,8 +299,31 @@ export interface CardioSettings {
   defaultDurationMin: number;
 }
 
-/** Training goal (seed `goal`). Only `fat-loss` exists today. */
-export type GoalType = 'fat-loss' | (string & {});
+/**
+ * Training goal type (chosen at onboarding; `settings.goal.type`).
+ * - `fat-loss`: cut progression rules (cutAdjustments), deload due after 5 weeks, bodyweight loss-rate verdict.
+ * - `build-muscle` / `general-strength`: base rules (2-session stall → −10%, maintaining is not success),
+ *   deload due after 6 weeks, bodyweight trend without a verdict (`goalApplies: false`).
+ * Other strings are tolerated (treated like the non-fat-loss goals).
+ */
+export type GoalType = 'fat-loss' | 'build-muscle' | 'general-strength' | (string & {});
+
+/** The goal types offered at onboarding, in display order. */
+export const GOAL_TYPES: readonly GoalType[] = ['fat-loss', 'build-muscle', 'general-strength'];
+
+/** Self-reported training experience. Stored only: it has NO effect on any logic (prefill, progression, deload). */
+export type Experience = 'beginner' | 'intermediate' | 'advanced';
+
+/** The experience levels, in display order. */
+export const EXPERIENCE_LEVELS: readonly Experience[] = ['beginner', 'intermediate', 'advanced'];
+
+/** Per-device user profile (`Settings.profile`). */
+export interface Profile {
+  /** Display name ('' until onboarding). */
+  name: string;
+  /** Unset until chosen (onboarding / updateProfile). Stored only, no logic effect. */
+  experience?: Experience;
+}
 
 export interface Goal {
   type: GoalType;
@@ -379,7 +402,13 @@ export interface BodyweightTrend {
    * lossPctPerWeek = (previousAvg − currentAvg) / previousAvg × 100 (research/SCHEMA.md).
    */
   weeklyRate: { lossPerWeek: number; lossPctPerWeek: number } | null;
+  /**
+   * Fat-loss goals → 'tooSlow' | 'onTrack' | 'tooFast' (or 'insufficientData');
+   * other goals → always the neutral 'insufficientData' (no verdict; check `goalApplies`).
+   */
   status: BodyweightTrendStatus;
+  /** True only when `goal.type === 'fat-loss'`: the loss-rate verdict vs `target` is meaningful. */
+  goalApplies: boolean;
   target: { min: number; max: number };
   /** Entries in the last `trendWindowDays` days (compare with recommendedEntriesPerWeek). */
   entriesThisWindow: number;
@@ -400,6 +429,13 @@ export interface Settings {
   goal: Goal;
   /** Deload-week state (see `startDeload` / `endDeload` / `deloadDue`). */
   deload: DeloadSettings;
+  /** Per-device profile (name, experience). */
+  profile: Profile;
+  /**
+   * ISO time onboarding was completed. Absent on a fresh install (show onboarding);
+   * existing data without it is migrated on init / import (set to now, goal 'fat-loss' if missing).
+   */
+  onboardedAt?: string;
 }
 
 /** Persisted deload state (`Settings.deload`). */

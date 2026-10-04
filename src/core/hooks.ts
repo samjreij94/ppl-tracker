@@ -29,6 +29,8 @@ import {
   type CustomExerciseInput,
   type FinishResult,
   type LogSetResult,
+  type OnboardingInput,
+  type ProfilePatch,
   type SetPatch,
   type SettingsPatch,
 } from './store';
@@ -36,6 +38,7 @@ import type { ImportResult } from './transfer';
 import type {
   ActivityConfig,
   DeloadStatus,
+  Profile,
   BodyweightEntry,
   BodyweightLogConfig,
   BodyweightTrend,
@@ -251,6 +254,13 @@ export interface UseSettings {
   startDeload: (opts?: { weekLength?: number }) => DeloadStatus;
   /** End the active deload now. */
   endDeload: () => DeloadStatus;
+  /** = settings.profile */
+  profile: Profile;
+  /** True once `settings.onboardedAt` is set. Meaningless while `status === 'loading'`. */
+  onboarded: boolean;
+  /** First-run setup (atomic: profile, goal, unit, schedule, onboardedAt). */
+  completeOnboarding: (input: OnboardingInput) => Settings;
+  updateProfile: (patch: ProfilePatch) => Settings;
 }
 
 /** Settings + unit helpers. */
@@ -270,6 +280,35 @@ export function useSettings(): UseSettings {
     deload: deloadDue(s),
     startDeload: core.startDeload,
     endDeload: core.endDeload,
+    profile: s.settings.profile,
+    onboarded: !!s.settings.onboardedAt,
+    completeOnboarding: core.completeOnboarding,
+    updateProfile: core.updateProfile,
+  };
+}
+
+/** Return of `useOnboarding`. */
+export interface UseOnboarding {
+  status: CoreStatus;
+  /** True once onboarding is complete (or the install was migrated). Wait for `status !== 'loading'`. */
+  onboarded: boolean;
+  onboardedAt?: string;
+  profile: Profile;
+  completeOnboarding: (input: OnboardingInput) => Settings;
+  updateProfile: (patch: ProfilePatch) => Settings;
+}
+
+/** First-run onboarding state + actions. */
+export function useOnboarding(): UseOnboarding {
+  const core = useCore();
+  const s = useCoreState();
+  return {
+    status: s.status,
+    onboarded: !!s.settings.onboardedAt,
+    onboardedAt: s.settings.onboardedAt,
+    profile: s.settings.profile,
+    completeOnboarding: core.completeOnboarding,
+    updateProfile: core.updateProfile,
   };
 }
 

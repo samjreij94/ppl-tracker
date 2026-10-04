@@ -19,7 +19,9 @@ const dayNum = (date: string) => Math.round(Date.parse(`${date}T00:00:00Z`) / DA
  * previousAvg = window ending `windowDays` earlier. Each window needs ≥ 2
  * readings, else status 'insufficientData'.
  * lossPctPerWeek = (previousAvg − currentAvg) / previousAvg × 100 (positive = losing),
- * compared with goal.targetLossPctBodyweightPerWeek {min, max}.
+ * compared with goal.targetLossPctBodyweightPerWeek {min, max} — only for goal.type 'fat-loss'.
+ * Other goals: `goalApplies: false` and `status` stays the neutral 'insufficientData'
+ * (weeklyRate is still computed).
  */
 export function bodyweightTrend(
   entries: readonly BodyweightEntry[],
@@ -35,7 +37,8 @@ export function bodyweightTrend(
   };
   const points: BodyweightTrendPoint[] = conv.map((c) => ({ date: c.date, weight: r2(c.w), avg: r2(windowAvg(c.n).avg!) }));
   const target = goal.targetLossPctBodyweightPerWeek;
-  const base = { unit, points, target };
+  const goalApplies = goal.type === 'fat-loss';
+  const base = { unit, points, target, goalApplies };
   if (!conv.length) return { ...base, currentAvg: null, previousAvg: null, weeklyRate: null, status: 'insufficientData', entriesThisWindow: 0 };
   const lastN = conv[conv.length - 1].n;
   const cur = windowAvg(lastN);
@@ -47,7 +50,8 @@ export function bodyweightTrend(
   }
   const perWeek = ((prev.avg - cur.avg) * 7) / windowDays;
   const pct = (perWeek / prev.avg) * 100;
-  const status = pct < target.min ? 'tooSlow' : pct > target.max ? 'tooFast' : 'onTrack';
+  // Non-fat-loss goals: no verdict vs the loss target (neutral status, see BodyweightTrend.goalApplies).
+  const status = !goalApplies ? 'insufficientData' : pct < target.min ? 'tooSlow' : pct > target.max ? 'tooFast' : 'onTrack';
   return {
     ...base,
     currentAvg,
