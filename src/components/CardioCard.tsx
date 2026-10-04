@@ -1,0 +1,140 @@
+import { useEffect, useRef, useState } from 'react';
+import { Stepper } from './Stepper';
+import { IconCheck } from './Icons';
+import { CARDIO_LABEL, fmtNum, type CardioKind, type CardioVM, type Unit } from '../ui/types';
+
+const KINDS: { id: CardioKind; short: string }[] = [
+  { id: 'incline-treadmill', short: 'Incline' },
+  { id: 'flat-treadmill', short: 'Flat' },
+  { id: 'peloton', short: 'Peloton' },
+];
+
+export interface CardioTimer { endsAt: number | null; pausedLeftSec: number | null }
+
+interface Props {
+  cardio: CardioVM;
+  unit: Unit;
+  timer: CardioTimer;
+  onTimer: (t: CardioTimer) => void;
+  onChange: (patch: Partial<CardioVM>) => void;
+  onToggleDone: () => void;
+}
+
+function vibrate() {
+  try { if ('vibrate' in navigator && typeof navigator.vibrate === 'function') navigator.vibrate([300, 120, 300]); } catch { /* iOS: no-op */ }
+}
+
+export function cardioSummary(c: CardioVM, unit: Unit) {
+  const bits = [`${c.minutes} min`];
+  if (c.kind !== 'peloton') {
+    if (c.incline) bits.push(`${fmtNum(c.incline)}%`);
+    if (c.speed) bits.push(`${fmtNum(c.speed)} ${unit === 'kg' ? 'km/h' : 'mph'}`);
+  } else {
+    if (c.output) bits.push(`${c.output} kJ`);
+    if (c.calories) bits.push(`${c.calories} cal`);
+  }
+  return bits.join(' · ');
+}
+
+/** Cardio warm-up block — always first in a workout. */
+export function CardioCard({ cardio, unit, timer, onTimer, onChange, onToggleDone }: Props) {
+  const [expanded, setExpanded] = useState(!cardio.done);
+  const [now, setNow] = useState(Date.now());
+  const fired = useRef(false);
+  useEffect(() => { if (cardio.done) setExpanded(false); }, [cardio.done]);
+  useEffect(() => {
+    if (!timer.endsAt) return;
+    fired.current = false;
+    const id = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(id);
+  }, [timer.endsAt]);
+
+  const running = timer.endsAt != null;
+  const leftSec = running ? Math.max(0, Math.ceil((timer.endsAt! - now) / 1000)) : timer.pausedLeftSec ?? cardio.minutes * 60;
+  useEffect(() => {
+    if (running && leftSec === 0 && !fired.current) {
+      fired.current = true;
+      vibrate();
+      onTimer({ endsAt: null, pausedLeftSec: 0 });
+    }
+  }, [running, leftSec, onTimer]);
+  const mm = Math.floor(leftSec / 60), ss = String(leftSec % 60).padStart(2, '0');
+  const finished = !running && timer.pausedLeftSec === 0;
+
+  const start = () => onTimer({ endsAt: Date.now() + (leftSec > 0 ? leftSec : cardio.minutes * 60) * 1000, pausedLeftSec: null });
+  const pause = () => onTimer({ endsAt: null, pausedLeftSec: leftSec });
+  const reset = () => onTimer({ endsAt: null, pausedLeftSec: null });
+  const speedUnit = unit === 'kg' ? 'km/h' : 'mph';
+
+  if (!expanded) {
+    return (
+      <section className={`card cardio-card collapsed${cardio.done ? ' done' : ''}`} aria-label="Cardio warm-up" data-testid="cardio">
+        <div className="row">
+          <div className={`cardio-check${cardio.done ? ' on' : ''}`} aria-hidden="true"><IconCheck /></div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="eyebrow">Cardio warm-up</div>
+            <div className="name">{CARDIO_LABEL[cardio.kind]}</div>
+            <div className="dim num" style={{ fontSize: 14 }}>{cardioSummary(cardio, unit)}</div>
+          </div>
+          <button className="btn btn-sm" onClick={() => setExpanded(true)}>Edit</button>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className={`card cardio-card${cardio.done ? ' done' : ''}`} aria-label="Cardio warm-up" data-testid="cardio">
+      <div className="row" style={{ marginBottom: 10 }}>
+        <div style={{ flex: 1 }}>
+          <div className="eyebrow">Cardio warm-up</div>
+          <div className="name">{CARDIO_LABEL[cardio.kind]}</div>
+        </div>
+        {cardio.done && <button className="btn btn-sm" onClick={() => setExpanded(false)}>Collapse</button>}
+      </div>
+      <div className="seg seg-lg" role="group" aria-label="Cardio type">
+        {KINDS.map((k) => (
+          <button key={k.id} aria-pressed={cardio.kind === k.id} onClick={() => onChange({ kind: k.id })}>{k.short}</button>
+        ))}
+      </div>
+
+      <div className="grid2" style={{ marginTop: 12 }}>
+        <label className="field-s"><span className="lbl">Minutes</span>
+          <Stepper label="Minutes" value={cardio.minutes} step={1} min={1} max={180} decimals={0} onChange={(v) => { onChange({ minutes: v }); if (!running) reset(); }} />
+        </label>
+        <div className="cardio-timer">
+          <span className="lbl">Timer</span>
+          <div className={`timer-box num${running ? ' running' : ''}${finished ? ' finished' : ''}`} role="timer" aria-label="Cardio timer">{mm}:{ss}</div>
+        </div>
+      </div>
+
+      {cardio.kind !== 'peloton' ? (
+        <div className="grid2" style={{ marginTop: 10 }}>
+          <label className="field-s"><span className="lbl">Incline % <em>optional</em></span>
+            <Stepper label="Incline percent" value={cardio.incline ?? 0} step={0.5} max={30} onChange={(v) => onChange({ incline: v })} />
+          </label>
+          <label className="field-s"><span className="lbl">Speed {speedUnit} <em>optional</em></span>
+            <Stepper label={`Speed ${speedUnit}`} value={cardio.speed ?? 0} step={0.1} max={20} onChange={(v) => onChange({ speed: v })} />
+          </label>
+        </div>
+      ) : (
+        <div className="grid2" style={{ marginTop: 10 }}>
+          <label className="field-s"><span className="lbl">Output kJ <em>optional</em></span>
+            <Stepper label="Output kJ" value={cardio.output ?? 0} step={5} max={2000} decimals={0} onChange={(v) => onChange({ output: v })} />
+          </label>
+          <label className="field-s"><span className="lbl">Calories <em>optional</em></span>
+            <Stepper label="Calories" value={cardio.calories ?? 0} step={5} max={3000} decimals={0} onChange={(v) => onChange({ calories: v })} />
+          </label>
+        </div>
+      )}
+
+      <div className="grid2" style={{ marginTop: 12 }}>
+        {running
+          ? <button className="btn" onClick={pause}>Pause</button>
+          : <button className="btn" onClick={finished ? reset : start}>{finished ? 'Reset' : timer.pausedLeftSec != null ? 'Resume' : 'Start'}</button>}
+        <button className={cardio.done ? 'btn' : 'btn btn-primary'} aria-pressed={cardio.done} onClick={() => { if (running) pause(); onToggleDone(); }}>
+          <IconCheck width={22} height={22} />{cardio.done ? 'Done' : 'Mark done'}
+        </button>
+      </div>
+    </section>
+  );
+}
