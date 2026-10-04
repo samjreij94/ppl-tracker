@@ -45,6 +45,11 @@ function checkSession(s: unknown, at: string, errors: string[]): s is WorkoutSes
     if (typeof s[k] !== 'string') bad(`${k} must be a string`);
   }
   if (s.unit !== 'lb' && s.unit !== 'kg') bad('unit must be "lb" or "kg"');
+  // Optional (phase 3): per-session PRs and the deload flag.
+  if (s.prs !== undefined && !(Array.isArray(s.prs) && s.prs.every((p) => isObj(p) && typeof p.kind === 'string' && typeof p.exerciseId === 'string' && typeof p.value === 'number'))) {
+    bad('prs must be an array of PRResult');
+  }
+  if (s.deload !== undefined && typeof s.deload !== 'boolean') bad('deload must be a boolean');
   if (!Array.isArray(s.entries)) {
     bad('entries must be an array');
     return false;

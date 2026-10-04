@@ -16,6 +16,7 @@ import {
 } from './defaults';
 import {
   cardioSlot,
+  deloadDue,
   detectPRs,
   finisherOffer,
   exerciseHistory,
@@ -35,6 +36,7 @@ import type {
   CardioEntry,
   CardioMetrics,
   CardioRole,
+  DeloadStatus,
   Equipment,
   Exercise,
   ExerciseCategory,
@@ -75,11 +77,12 @@ export interface CustomExerciseInput {
 }
 
 /** Deep-partial settings patch for `updateSettings`. */
-export type SettingsPatch = Partial<Omit<Settings, 'increments' | 'cardio' | 'finisher' | 'goal'>> & {
+export type SettingsPatch = Partial<Omit<Settings, 'increments' | 'cardio' | 'finisher' | 'goal' | 'deload'>> & {
   increments?: { [U in keyof Increments]?: Partial<Increments[U]> };
   cardio?: Partial<Settings['cardio']>;
   finisher?: Partial<Settings['finisher']>;
   goal?: Partial<Settings['goal']>;
+  deload?: Partial<Settings['deload']>;
 };
 
 /** Input for `logBodyweight`. `date` defaults to today (local), `unit` to settings.unit. */
@@ -148,7 +151,10 @@ export interface Core {
   addFinisher(opts?: { exerciseId?: string; durationMin?: number }): number;
   /** Remove (skip) the finisher from the active session. */
   removeFinisher(): void;
-  /** Finish the active session (moves it to history). Returns null if none. */
+  /**
+   * Finish the active session (moves it to history). Returns null if none.
+   * The returned PRs are also persisted on the session as `session.prs`.
+   */
   finishSession(): FinishResult | null;
   /** Drop the active session without saving. */
   discardSession(): void;
@@ -170,6 +176,17 @@ export interface Core {
   removeCustomExercise(exerciseId: string): void;
 
   updateSettings(patch: SettingsPatch): Settings;
+
+  /**
+   * Start a deload week now (`settings.deload = {active: true, startedAt: now, weekLength}`).
+   * Sessions STARTED while active are flagged `deload: true` and prefilled with
+   * ceil(sets × 50%) sets (≥ 1) at the last working weight −10%. No-op if already active.
+   */
+  startDeload(opts?: { weekLength?: number }): DeloadStatus;
+  /** End the deload now (`active: false`, `lastEndedAt: now`). No-op if not active. */
+  endDeload(): DeloadStatus;
+  /** Current deload status (`deloadDue(state, now)`). */
+  getDeloadStatus(): DeloadStatus;
 
   /** Upsert one reading per local date (weight > 0). Returns the stored entry. */
   logBodyweight(entry: BodyweightInput): BodyweightEntry;
@@ -206,6 +223,7 @@ function mergeSettings(base: Settings, patch: SettingsPatch | undefined): Settin
     cardio: { ...base.cardio, ...patch.cardio },
     finisher: { ...base.finisher, ...patch.finisher },
     goal: { ...base.goal, ...patch.goal },
+    deload: { ...base.deload, ...patch.deload },
     permanentSwaps: patch.permanentSwaps ?? base.permanentSwaps,
   };
 }
@@ -309,6 +327,16 @@ export function createCore(opts: CreateCoreOptions): Core {
   });
   /** Finisher metrics prefill for a given exercise (last finisher with it). */
   const finisherMetrics = (exerciseId: string) => getCardioHistory(state, { role: 'finisher', exerciseId })[0]?.metrics;
+  /** Auto-end a deload `weekLength` days after it started (lastEndedAt = the scheduled end). */
+  const autoEndDeload = () => {
+    const dl = state.settings.deload;
+    if (!dl?.active || !dl.startedAt) return;
+    const end = Date.parse(dl.startedAt) + Math.max(1, dl.weekLength || 7) * 86_400_000;
+    if (Number.isFinite(end) && now().getTime() >= end) {
+      const { startedAt: _s, ...rest } = dl;
+      setState({ settings: { ...state.settings, deload: { ...rest, active: false, lastEndedAt: new Date(end).toISOString() } } }, ['settings']);
+    }
+  };
 
   const core: Core = {
     getState: () => state,
@@ -333,13 +361,15 @@ export function createCore(opts: CreateCoreOptions): Core {
           bodyweight: bodyweight ?? [],
           ...compose(custom ?? []),
         });
+        autoEndDeload();
       })());
     },
     flush: () => writes,
 
     startSession(dayId) {
       if (state.active) return state.active;
-      const today = getToday(state, dayId);
+      autoEndDeload();
+      const today = getToday(state, dayId, now());
       if (!today) throw new Error(`unknown day "${dayId ?? ''}"`);
       const entries: SessionEntry[] = today.slots.map((t): SessionEntry => {
         if (t.kind === 'cardio') {
@@ -373,6 +403,7 @@ export function createCore(opts: CreateCoreOptions): Core {
         startedAt: now().toISOString(),
         unit: state.settings.unit,
         entries,
+        ...(state.settings.deload?.active ? { deload: true } : {}),
       };
       setState({ active: session }, ['active']);
       return session;
@@ -468,6 +499,7 @@ export function createCore(opts: CreateCoreOptions): Core {
         }
         prs.push(...best.values());
       }
+      session.prs = prs;
       setState({ active: null, sessions: [...state.sessions, session] }, ['active', 'sessions']);
       return { session, prs };
     },
@@ -587,6 +619,27 @@ export function createCore(opts: CreateCoreOptions): Core {
       setState({ settings }, ['settings']);
       return settings;
     },
+
+    startDeload(o = {}) {
+      autoEndDeload();
+      const dl = state.settings.deload;
+      if (!dl.active) {
+        const weekLength = o.weekLength && o.weekLength > 0 ? Math.round(o.weekLength) : dl.weekLength || 7;
+        setState({ settings: { ...state.settings, deload: { ...dl, active: true, startedAt: now().toISOString(), weekLength } } }, ['settings']);
+      }
+      return deloadDue(state, now());
+    },
+
+    endDeload() {
+      const dl = state.settings.deload;
+      if (dl.active) {
+        const { startedAt: _s, ...rest } = dl;
+        setState({ settings: { ...state.settings, deload: { ...rest, active: false, lastEndedAt: now().toISOString() } } }, ['settings']);
+      }
+      return deloadDue(state, now());
+    },
+
+    getDeloadStatus: () => deloadDue(state, now()),
 
     logBodyweight(input) {
       if (!(input.weight > 0)) throw new Error('weight must be > 0');

@@ -19,7 +19,9 @@ import type {
   CardioExercise,
   CardioRole,
   CardioSlot,
+  DeloadStatus,
   Exercise,
+  FinisherConfig,
   ExerciseSeriesPoint,
   PRResult,
   Program,
@@ -98,18 +100,25 @@ export interface ExerciseHistoryItem {
   sourceUnit: Unit;
   /** Planned sets for this exercise in that session (Σ entry.target.sets). */
   targetSets: number;
+  /** The session was a deload session (`WorkoutSession.deload`). */
+  deload?: boolean;
 }
 
-/** Done sets of an exercise across FINISHED sessions, newest session first, converted to `unit`. */
+/**
+ * Done sets of an exercise across FINISHED sessions, newest session first, converted to `unit`.
+ * `opts.excludeDeload` skips deload sessions (used by progression and prefill).
+ */
 export function exerciseHistory(
   sessions: readonly WorkoutSession[],
   exerciseId: string,
   unit: Unit,
+  opts: { excludeDeload?: boolean } = {},
 ): ExerciseHistoryItem[] {
   const out: ExerciseHistoryItem[] = [];
   for (let i = sessions.length - 1; i >= 0; i--) {
     const s = sessions[i];
     if (!s.finishedAt) continue;
+    if (opts.excludeDeload && s.deload) continue;
     const sets: SetLog[] = [];
     let targetSets = 0;
     for (const e of s.entries) {
@@ -117,14 +126,17 @@ export function exerciseHistory(
       targetSets += e.target?.sets ?? e.sets.length;
       for (const set of doneSets(e.sets)) sets.push({ ...set, weight: r2(convertWeight(set.weight, s.unit, unit)) });
     }
-    if (sets.length) out.push({ sessionId: s.id, date: s.startedAt, sets, sourceUnit: s.unit, targetSets });
+    if (sets.length) out.push({ sessionId: s.id, date: s.startedAt, sets, sourceUnit: s.unit, targetSets, ...(s.deload ? { deload: true } : {}) });
   }
   return out;
 }
 
-/** Last finished performance of an exercise (display unit), or null. Substitutes have their OWN history. */
-export function lastPerformance(state: CoreState, exerciseId: string): LastPerformance | null {
-  const h = exerciseHistory(state.sessions, exerciseId, state.settings.unit)[0];
+/**
+ * Last finished performance of an exercise (display unit), or null. Substitutes have their OWN history.
+ * Includes deload sessions unless `opts.excludeDeload` (prefill/progression pass it).
+ */
+export function lastPerformance(state: CoreState, exerciseId: string, opts: { excludeDeload?: boolean } = {}): LastPerformance | null {
+  const h = exerciseHistory(state.sessions, exerciseId, state.settings.unit, opts)[0];
   return h ? { sessionId: h.sessionId, date: h.date, sets: h.sets, sourceUnit: h.sourceUnit } : null;
 }
 
@@ -152,30 +164,57 @@ export function prefillFromLast(
 /**
  * Planned set count for an exercise in a slot: the slot's sets, or the
  * progression hint's `newSets` when it says `dropSet` (never below
- * `progressionRules.minSetsPerSlot`, 2).
+ * `progressionRules.minSetsPerSlot`, 2), or, during a deload week,
+ * `deloadSets(sets)` = max(1, ceil(sets × 50%)).
  */
 export function plannedSets(state: CoreState, exerciseId: string, target: { sets: number; repRange: RepRange }): number {
   const hint = getProgression(state, exerciseId, target);
+  if (hint?.action === 'deload' && hint.newSets !== undefined) return hint.newSets;
   if (hint?.action === 'dropSet' && hint.newSets !== undefined) {
     return Math.max(Math.min(state.progressionRules.minSetsPerSlot, target.sets), hint.newSets);
   }
   return target.sets;
 }
 
+/** Deload set count: max(1, ceil(sets × (1 − setReductionPct/100))) — seed protocol `ceil(sets × 0.5)`, floor 1. */
+export function deloadSets(sets: number, setReductionPct = 50): number {
+  return Math.max(1, Math.ceil(sets * (1 - setReductionPct / 100) - 1e-9));
+}
+
 /**
  * Prefilled sets for an exercise in a slot (what `startSession` / a swap uses):
- * `plannedSets` sets copied from the exercise's OWN last session; weights
- * converted to the display unit and, if that session was logged in the other
- * unit, rounded to the exercise increment.
+ * `plannedSets` sets copied from the exercise's OWN last NON-deload session;
+ * weights converted to the display unit and, if that session was logged in
+ * the other unit, rounded to the exercise increment. Then the progression hint
+ * is applied:
+ *
+ * - `increase` / `reduceLoad`: every WORKING set (a set whose source set was at
+ *   the last top-set weight) gets `hint.newWeight` and reps reset to
+ *   `repRange.min` (= `hint.targetReps`; double progression restarts at the
+ *   bottom of the range after a load change). Lighter back-off sets keep their last weight/reps.
+ * - `deload`: ALL (reduced) sets get `hint.newWeight` (last working weight −10%,
+ *   snapped to the increment) × `repRange.min` reps.
+ * - `addReps` / `hold` / `dropSet`: last weight and reps unchanged.
  */
 export function prefillSets(state: CoreState, exerciseId: string, target: { sets: number; repRange: RepRange }): SetLog[] {
-  const last = lastPerformance(state, exerciseId);
+  const last = lastPerformance(state, exerciseId, { excludeDeload: true });
   const ex = state.exercises[exerciseId];
   const roundTo =
     last && last.sourceUnit && last.sourceUnit !== state.settings.unit && ex?.kind === 'strength'
       ? getIncrement(ex, state.settings)
       : undefined;
-  return prefillFromLast({ sets: plannedSets(state, exerciseId, target), repRange: target.repRange }, last, { roundTo });
+  const n = plannedSets(state, exerciseId, target);
+  const base = prefillFromLast({ sets: n, repRange: target.repRange }, last, { roundTo });
+  const hint = getProgression(state, exerciseId, target);
+  if (!hint || hint.newWeight === undefined || !last?.sets.length) return base;
+  const reps = target.repRange.min;
+  if (hint.action === 'deload') return base.map((s) => ({ ...s, weight: hint.newWeight!, reps }));
+  if (hint.action !== 'increase' && hint.action !== 'reduceLoad') return base;
+  const w = topSet(last.sets)?.weight ?? 0;
+  return base.map((s, i) => {
+    const src = last.sets[Math.min(i, last.sets.length - 1)];
+    return Math.abs(src.weight - w) < 0.01 ? { ...s, weight: hint.newWeight!, reps } : s;
+  });
 }
 
 /* ------------------------------------------------------------------ progression */
@@ -207,10 +246,30 @@ export function suggestProgression(args: {
   rules: ProgressionRules;
   /** `settings.goal.type`; selects the cut rules when it matches. */
   goalType?: string;
+  /** A deload week is active → always returns a `deload` hint (pass non-deload history). */
+  deload?: boolean;
 }): ProgressionHint {
   const { exerciseId, repRange, targetSets, history, unit, increment, rules, goalType } = args;
   const cut = rules.cut && goalType === rules.cut.appliesWhenGoalType ? rules.cut : undefined;
   const tag: ProgressionHint['rules'] = cut ? 'cut' : 'base';
+  if (args.deload) {
+    const newSets = deloadSets(targetSets, rules.deload.setReductionPct);
+    const rir = rules.deload.targetRir ?? '3-4';
+    const top = history[0]?.sets.length ? topSet(history[0].sets)?.weight : undefined;
+    if (top === undefined) {
+      return { exerciseId, action: 'deload', newSets, targetReps: repRange.min, rules: tag, message: `deload week: ${newSets} light sets of ${repRange.min}, stop at RIR ${rir}` };
+    }
+    const newWeight = roundToIncrement(top * (1 - rules.deload.loadReductionPct / 100), increment, 'nearest');
+    return {
+      exerciseId,
+      action: 'deload',
+      newWeight,
+      newSets,
+      targetReps: repRange.min,
+      rules: tag,
+      message: `deload week: ${newSets} × ${repRange.min} at ${newWeight} ${unit}, stop at RIR ${rir}`,
+    };
+  }
   const N = Math.max(1, cut?.stallConsecutiveSessions ?? rules.stallConsecutiveSessions);
   const pct = cut?.stallLoadReductionPct ?? rules.stallLoadReductionPct;
   const last = history[0];
@@ -264,7 +323,11 @@ export function suggestProgression(args: {
   }
 }
 
-/** Progression hint for an exercise (optionally with a slot's rep range / sets). Null for cardio/unknown. */
+/**
+ * Progression hint for an exercise (optionally with a slot's rep range / sets). Null for cardio/unknown.
+ * Deload sessions are excluded from the history (no stall counting, no prefill source);
+ * while `settings.deload.active` the hint is always `deload`.
+ */
 export function getProgression(
   state: CoreState,
   exerciseId: string,
@@ -276,11 +339,12 @@ export function getProgression(
     exerciseId,
     repRange: target?.repRange ?? ex.repRange,
     targetSets: target?.sets ?? ex.defaultSets,
-    history: exerciseHistory(state.sessions, exerciseId, state.settings.unit),
+    history: exerciseHistory(state.sessions, exerciseId, state.settings.unit, { excludeDeload: true }),
     unit: state.settings.unit,
     increment: getIncrement(ex, state.settings),
     rules: state.progressionRules,
     goalType: state.settings.goal.type,
+    deload: !!state.settings.deload?.active,
   });
 }
 
@@ -469,6 +533,37 @@ export function getCardioHistory(state: CoreState, opts: { exerciseId?: string; 
 }
 
 /**
+ * Finisher prescription text (never the exercise's 10-min warm-up
+ * `defaultPrescription`): `"<min> min <exercise>, easy zone 2: <cue> (RPE x-y)"`.
+ * The cue is the effortNote's description (text after the first `:` up to the
+ * first `;`); the whole note is used when it is ≤ 80 chars. RPE is pulled from the note when present.
+ * e.g. "15 min Incline Treadmill Walk, easy zone 2: conversational pace, you can speak in full sentences (RPE 3-4)".
+ */
+export function finisherPrescription(config: Pick<FinisherConfig, 'intensity' | 'effortNote'>, exercise: Pick<CardioExercise, 'name'>, durationMin: number): string {
+  const intensity = config.intensity ? config.intensity.replace(/[-_]+/g, ' ').trim() : '';
+  const label = intensity ? (/zone\s*2/i.test(intensity) ? `easy ${intensity}` : intensity) : 'easy';
+  const note = config.effortNote?.trim();
+  let cue = '';
+  let rpe = '';
+  if (note) {
+    if (note.length <= 80) cue = note.replace(/\.$/, '');
+    else {
+      const afterColon = note.includes(':') ? note.slice(note.indexOf(':') + 1) : note;
+      cue = afterColon.split(/[;.]/)[0].trim();
+      if (cue.length > 80) cue = '';
+      const m = /RPE\s*\d+(?:\s*-\s*\d+)?/i.exec(note);
+      rpe = m ? m[0].replace(/\s+/g, ' ') : '';
+    }
+  }
+  return `${durationMin} min ${exercise.name}, ${label}${cue ? `: ${cue}` : ''}${rpe ? ` (${rpe})` : ''}`;
+}
+
+/** Warm-up prescription: the exercise's `defaultPrescription`, else `"<min> min easy-moderate"`. */
+export function warmupPrescription(exercise: Pick<CardioExercise, 'defaultPrescription'>, durationMin: number): string {
+  return exercise.defaultPrescription ?? `${durationMin} min easy-moderate`;
+}
+
+/**
  * The optional finisher: exercise = permanent swap on `FINISHER_SLOT_ID`, else
  * the last finisher's exercise, else `finisher.defaultExerciseId`; duration =
  * last finisher's (clamped to min..max) else `finisher.defaultDurationMin`
@@ -504,6 +599,7 @@ export function finisherOffer(state: CoreState): TodayFinisher | null {
     maxDurationMin: f.maxDurationMin,
     intensity: f.intensity,
     effortNote: f.effortNote,
+    prescription: finisherPrescription(f, ex, durationMin),
     last,
     autoAdd: state.settings.finisher.autoAdd,
     ...(metrics ? { metrics } : {}),
@@ -514,9 +610,9 @@ export function finisherOffer(state: CoreState): TodayFinisher | null {
  * What to train: the next day in the rotation (or `dayId` to preview another),
  * cardio first, then strength slots after permanent swaps, with targets, last
  * performance of the exercise actually scheduled and a progression hint.
- * Null if the program has no days.
+ * `deload` = `deloadDue(state, now)`. Null if the program has no days.
  */
-export function getToday(state: CoreState, dayId?: string): TodayView | null {
+export function getToday(state: CoreState, dayId?: string, now: Date = new Date()): TodayView | null {
   const next = nextDayId(state.program, state.sessions, state.settings.schedule);
   const id = dayId ?? next;
   const day = state.program.days.find((d) => d.id === id);
@@ -532,6 +628,7 @@ export function getToday(state: CoreState, dayId?: string): TodayView | null {
       swapped: c.exercise.id !== state.warmupExerciseId,
       durationMin: c.slot.durationMin,
       last: getCardioHistory(state, { exerciseId: c.exercise.id, role: 'warmup' })[0] ?? null,
+      prescription: warmupPrescription(c.exercise, c.slot.durationMin),
       ...(c.slot.metrics ? { metrics: c.slot.metrics } : {}),
     };
     slots.push(t);
@@ -555,7 +652,7 @@ export function getToday(state: CoreState, dayId?: string): TodayView | null {
     slots.push(t);
   }
   const rot = state.program.rotations[state.settings.schedule];
-  return { day, rotationIndex: rot.indexOf(day.id), isNext: day.id === next, slots, finisher: finisherOffer(state), activeSession: state.active };
+  return { day, rotationIndex: rot.indexOf(day.id), isNext: day.id === next, slots, finisher: finisherOffer(state), activeSession: state.active, deload: deloadDue(state, now) };
 }
 
 /* ------------------------------------------------------------------ active session view */
@@ -584,7 +681,79 @@ export function getActiveEntries(state: CoreState): ActiveEntryView[] {
         swapped: programmedExerciseId !== entry.exerciseId,
         last: strength ? lastPerformance(state, entry.exerciseId) : null,
         progression: strength ? getProgression(state, entry.exerciseId, strength.target) : null,
+        ...(entry.kind === 'cardio' && exercise.kind === 'cardio'
+          ? {
+              prescription:
+                entry.role === 'finisher'
+                  ? finisherPrescription(state.finisher, exercise, entry.durationMin)
+                  : warmupPrescription(exercise, entry.durationMin),
+            }
+          : {}),
       },
     ];
   });
+}
+
+/* ------------------------------------------------------------------ deload */
+
+const DAY_MS = 86_400_000;
+
+/**
+ * Deload status (research/SCHEMA.md progressionRules.deload + cutAdjustments.deloadNote).
+ *
+ * - `dueAfterWeeks`: `deload.frequencyWeeks.min` (6); under the fat-loss cut
+ *   `cut.deloadFrequencyWeeks.min` (5, from deloadNote "around every 5-6 weeks").
+ * - `weeksSinceLast`: whole calendar weeks since `settings.deload.lastEndedAt`
+ *   (else the newest deload session's finish, else the FIRST finished session's start); null with neither.
+ * - `due` (never while active, and only with ≥ 1 finished non-deload session since the anchor) when
+ *   `weeksSinceLast ≥ dueAfterWeeks`, OR when ≥ 3 distinct exercises trained in the
+ *   last 14 days currently have a stall hint (`reduceLoad` / `dropSet`) — the seed's early trigger.
+ * - While active: `endsAt` = startedAt + weekLength days, `daysLeft` = whole days remaining (≥ 0).
+ *   The store auto-ends an expired deload on `init()` and `startSession()`.
+ */
+export function deloadDue(state: CoreState, now: Date = new Date()): DeloadStatus {
+  const dl = state.settings.deload ?? { active: false, weekLength: 7 };
+  const rules = state.progressionRules;
+  const cut = rules.cut && state.settings.goal.type === rules.cut.appliesWhenGoalType ? rules.cut : undefined;
+  const dueAfterWeeks = cut?.deloadFrequencyWeeks?.min ?? rules.deload.frequencyWeeks?.min ?? 6;
+  const finished = state.sessions.filter((s) => s.finishedAt);
+  const lastDeloadSession = [...finished].reverse().find((s) => s.deload);
+  const anchor =
+    dl.lastEndedAt ?? lastDeloadSession?.finishedAt ?? finished.reduce<string | undefined>((a, s) => (!a || s.startedAt < a ? s.startedAt : a), undefined);
+  const weeksSinceLast = anchor ? Math.max(0, Math.floor((now.getTime() - Date.parse(anchor)) / (7 * DAY_MS))) : null;
+  const base = { weeksSinceLast, dueAfterWeeks };
+  if (dl.active) {
+    const start = dl.startedAt ? Date.parse(dl.startedAt) : now.getTime();
+    const end = start + Math.max(1, dl.weekLength || 7) * DAY_MS;
+    return {
+      ...base,
+      active: true,
+      startedAt: dl.startedAt,
+      endsAt: new Date(end).toISOString(),
+      daysLeft: Math.max(0, Math.ceil((end - now.getTime()) / DAY_MS)),
+      due: false,
+      reason: null,
+    };
+  }
+  const trainedSince = anchor ? finished.some((s) => !s.deload && (s.finishedAt ?? '') > anchor) : false;
+  if (weeksSinceLast !== null && trainedSince && weeksSinceLast >= dueAfterWeeks) {
+    return { ...base, active: false, due: true, reason: `${weeksSinceLast} weeks since ${dl.lastEndedAt || lastDeloadSession ? 'last deload' : 'you started'}` };
+  }
+  // Early trigger: 3+ exercises stalled within ~2 weeks.
+  const since = now.getTime() - 14 * DAY_MS;
+  const targets = new Map<string, { sets: number; repRange: RepRange }>();
+  for (let i = finished.length - 1; i >= 0; i--) {
+    const s = finished[i];
+    if (s.deload || Date.parse(s.startedAt) < since) continue;
+    for (const e of s.entries) {
+      if (e.kind === 'strength' && !targets.has(e.exerciseId) && e.target) targets.set(e.exerciseId, e.target);
+    }
+  }
+  let stalled = 0;
+  for (const [id, target] of targets) {
+    const a = getProgression(state, id, target)?.action;
+    if (a === 'reduceLoad' || a === 'dropSet') stalled++;
+  }
+  if (stalled >= 3) return { ...base, active: false, due: true, reason: `${stalled} exercises stalled in the last 2 weeks` };
+  return { ...base, active: false, due: false, reason: null };
 }

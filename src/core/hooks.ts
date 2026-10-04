@@ -5,6 +5,7 @@
 import { createContext, createElement, useContext, useMemo, useSyncExternalStore, type ReactNode } from 'react';
 import { getBundledSeed } from './bundled-seed';
 import {
+  deloadDue,
   finisherOffer,
   getActiveEntries,
   getCardioHistory,
@@ -34,6 +35,7 @@ import {
 import type { ImportResult } from './transfer';
 import type {
   ActivityConfig,
+  DeloadStatus,
   BodyweightEntry,
   BodyweightLogConfig,
   BodyweightTrend,
@@ -243,6 +245,12 @@ export interface UseSettings {
   clearPermanentSwap: (slotId: string) => void;
   convertWeight: (value: number, from: Unit, to: Unit) => number;
   roundToIncrement: (value: number, increment: number, mode?: 'nearest' | 'down' | 'up') => number;
+  /** Deload status (`deloadDue`): active / due / weeksSinceLast / reason / daysLeft. */
+  deload: DeloadStatus;
+  /** Start a deload week now (optional custom length in days). */
+  startDeload: (opts?: { weekLength?: number }) => DeloadStatus;
+  /** End the active deload now. */
+  endDeload: () => DeloadStatus;
 }
 
 /** Settings + unit helpers. */
@@ -259,7 +267,25 @@ export function useSettings(): UseSettings {
     clearPermanentSwap: core.clearPermanentSwap,
     convertWeight,
     roundToIncrement,
+    deload: deloadDue(s),
+    startDeload: core.startDeload,
+    endDeload: core.endDeload,
   };
+}
+
+/** Return of `useDeload`. */
+export interface UseDeload {
+  status: DeloadStatus;
+  startDeload: (opts?: { weekLength?: number }) => DeloadStatus;
+  endDeload: () => DeloadStatus;
+}
+
+/** Deload week: status (due / active / days left) + start/end actions. Same data as `useSettings().deload`. */
+export function useDeload(): UseDeload {
+  const core = useCore();
+  const s = useCoreState();
+  const status = useMemo(() => deloadDue(s), [s]);
+  return { status, startDeload: core.startDeload, endDeload: core.endDeload };
 }
 
 /** Return of `useDataTransfer`. */

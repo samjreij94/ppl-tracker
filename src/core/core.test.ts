@@ -65,12 +65,12 @@ describe('core store', () => {
     const hint = getProgression(core.getState(), 'barbell-bench-press', { sets: 4, repRange: { min: 5, max: 8 } })!;
     expect(hint).toMatchObject({ action: 'increase', newWeight: 140, increment: 5, message: 'add 5 lb', rules: 'cut' });
 
-    // prefill from last + PR on next session
+    // prefill applies the 'increase' hint (140 × repMin 5) + PR on next session
     core.startSession('push-a');
     const a = core.getState().active!;
     expect(a.entries[0].kind).toBe('cardio');
     const bench = a.entries[1];
-    expect(bench.kind === 'strength' && bench.sets[0]).toMatchObject({ weight: 135, reps: 8, done: false });
+    expect(bench.kind === 'strength' && bench.sets[0]).toMatchObject({ weight: 140, reps: 5, done: false });
     const { prs } = core.logSet(1, 0, { weight: 140, reps: 6, done: true });
     expect(prs.map((p) => p.kind).sort()).toEqual(['topSet']);
     const r2 = core.logSet(1, 1, { weight: 140, reps: 8, done: true });

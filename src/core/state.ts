@@ -1,4 +1,5 @@
 import type {
+  DeloadStatus,
   ActivityConfig,
   BodyweightEntry,
   BodyweightLogConfig,
@@ -77,9 +78,9 @@ export interface TodayStrengthSlot {
   programmedExerciseId: string;
   swapped: boolean;
   target: { sets: number; repRange: RepRange; restSec: number };
-  /** Sets `startSession` will prefill: `target.sets`, or fewer after a cut `dropSet` hint (never < 2). */
+  /** Sets `startSession` will prefill: `target.sets`, or fewer after a cut `dropSet` hint (never < 2), or `ceil(sets × 0.5)` (≥ 1) during a deload. */
   plannedSets: number;
-  /** Last session's sets for `exercise` (its OWN history), or null. */
+  /** Last session's sets for `exercise` (its OWN history, deload sessions included), or null. Prefill uses the last NON-deload session. */
   last: LastPerformance | null;
   progression: ProgressionHint;
 }
@@ -107,6 +108,8 @@ export interface TodayCardioSlot {
   last: CardioHistoryItem | null;
   /** Prefilled metrics (from `last`). */
   metrics?: CardioMetrics;
+  /** Warm-up prescription: the exercise's seed `defaultPrescription` (e.g. "10 min walk, 2.8-3.5 mph …"). */
+  prescription?: string;
 }
 
 /** The optional finisher offered after the last lifting slot (not in `slots`; add via `addFinisher`). */
@@ -123,6 +126,12 @@ export interface TodayFinisher {
   /** e.g. `zone-2` */
   intensity: string;
   effortNote?: string;
+  /**
+   * Finisher-specific prescription built from the finisher config + exercise + `durationMin`
+   * (never the exercise's 10-min warm-up text), e.g.
+   * "15 min Incline Treadmill Walk, easy zone 2: conversational pace, you can speak in full sentences (RPE 3-4)".
+   */
+  prescription: string;
   /** Last done finisher (any exercise). */
   last: CardioHistoryItem | null;
   /** True if `settings.finisher.autoAdd` — startSession will include it. */
@@ -146,6 +155,8 @@ export interface TodayView {
   finisher: TodayFinisher | null;
   /** Set if a session is in progress (possibly for another day). */
   activeSession: WorkoutSession | null;
+  /** Deload status (`deloadDue`): active / due / weeksSinceLast / reason. */
+  deload: DeloadStatus;
 }
 
 /** Rotation overview for a day picker. */
@@ -169,4 +180,6 @@ export interface ActiveEntryView {
   last: LastPerformance | null;
   /** Strength only. */
   progression: ProgressionHint | null;
+  /** Cardio only: warm-up → exercise `defaultPrescription`; finisher → `finisherPrescription(…, entry.durationMin)`. */
+  prescription?: string;
 }

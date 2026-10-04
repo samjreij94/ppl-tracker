@@ -51,6 +51,9 @@ export const BUILTIN_CARDIO_GROUP: SubstitutionGroup = {
   exerciseIds: BUILTIN_CARDIO.map((e) => e.id),
 };
 
+/** Default deload length in days. */
+export const DEFAULT_DELOAD_WEEK_LENGTH = 7;
+
 /** Default settings (increments may be replaced by the seed's progressionCategories). */
 export function defaultSettings(overrides: Partial<Settings> = {}): Settings {
   return {
@@ -62,6 +65,7 @@ export function defaultSettings(overrides: Partial<Settings> = {}): Settings {
     cardio: { enabled: true, defaultDurationMin: 10 },
     finisher: { autoAdd: false },
     goal: structuredClone(DEFAULT_GOAL),
+    deload: { active: false, weekLength: DEFAULT_DELOAD_WEEK_LENGTH },
     ...overrides,
   };
 }
@@ -71,8 +75,14 @@ export const DEFAULT_PROGRESSION_RULES: ProgressionRules = {
   stallConsecutiveSessions: 2,
   stallLoadReductionPct: 10,
   minSetsPerSlot: 2,
-  cut: { appliesWhenGoalType: 'fat-loss', maintainCountsAsSuccess: true, stallConsecutiveSessions: 3, stallLoadReductionPct: 5 },
-  deload: { setReductionPct: 50, loadReductionPct: 10 },
+  cut: {
+    appliesWhenGoalType: 'fat-loss',
+    maintainCountsAsSuccess: true,
+    stallConsecutiveSessions: 3,
+    stallLoadReductionPct: 5,
+    deloadFrequencyWeeks: { min: 5, max: 6 },
+  },
+  deload: { setReductionPct: 50, loadReductionPct: 10, frequencyWeeks: { min: 6, max: 8 }, targetRir: '3-4' },
   targetRir: { compound: '1-3', isolation: '0-2' },
 };
 

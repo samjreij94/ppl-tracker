@@ -27,6 +27,9 @@ to `research/exercises.json` flow through on the next dev reload / build.
 | `warmup.defaultExerciseId` (`incline-treadmill`) | `state.warmupExerciseId`; cardio slot (`id: 'cardio-warmup'`) auto-inserted first on every day |
 | cardio exercises (`kind:'cardio'`, `pattern:'cardio-warmup'`, `defaultDurationMin`, `progressionCategory:null`) | `CardioExercise` (no sets/progression) |
 | `progressionRules.cutAdjustments` `{appliesWhenGoalType, maintainCountsAsSuccess, stallConsecutiveSessions:3, stallLoadReductionPct:5}` | `state.progressionRules.cut` (used when `settings.goal.type` matches) |
+| `progressionRules.deload` `{frequencyWeeks:'6-8', setReductionPct:50, loadReductionPct:10, targetRir:'3-4'}` | `state.progressionRules.deload` `{setReductionPct, loadReductionPct, frequencyWeeks:{min:6,max:8}, targetRir}` (deload week; `deloadDue` after `frequencyWeeks.min`) |
+| `cutAdjustments.deloadNote` ("around every 5-6 weeks") | `progressionRules.cut.deloadNote` + `deloadFrequencyWeeks:{min:5,max:6}` (deload due after 5 weeks on the cut; same protocol) |
+| cardio `defaultPrescription` | `CardioExercise.defaultPrescription` → `TodayCardioSlot.prescription` (warm-up only; the finisher builds its own text from `finisher`) |
 | `goal` `{type, targetLossPctBodyweightPerWeek{min,max}, proteinGPerLbGoalBodyweight}` | default `Settings.goal` |
 | `finisher` `{optional, pattern, defaultExerciseId, defaultDurationMin, minDurationMin, maxDurationMin, intensity, effortNote, placement}` | `state.finisher` (`FinisherConfig`); optional cardio entry after lifting (slot id `cardio-finisher`) |
 | `activity` `{dailyStepTarget, stepTargetRange:"7000-10000", note}` | `state.activity` (`stepTargetRange` parsed to `{min,max}`) |

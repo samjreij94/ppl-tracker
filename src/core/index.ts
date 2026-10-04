@@ -2,7 +2,7 @@
  * PPL Tracker core — public API. The UI imports ONLY from here.
  *
  * - Hooks (recommended for UI): useToday, useWorkout, useExerciseHistory,
- *   useExercises, useSettings, useDataTransfer (+ useCore, useCoreState, CoreProvider).
+ *   useExercises, useSettings, useDeload, useDataTransfer (+ useCore, useCoreState, CoreProvider).
  * - Imperative: `getCore()` returns the app-wide store with every action
  *   (startSession, logSet, …) and `getState()/subscribe()`.
  * - Pure helpers: queries that take a `CoreState` (getToday(state), getPRs(state, id), …)
@@ -51,19 +51,23 @@ export {
   useCore,
   useCoreState,
   useDataTransfer,
+  useDeload,
   useExerciseHistory,
   useExercises,
   useSettings,
   useToday,
   useWorkout,
 } from './hooks';
-export type { UseBodyweight, UseDataTransfer, UseExerciseHistory, UseExercises, UseSettings, UseToday, UseWorkout } from './hooks';
+export type { UseBodyweight, UseDataTransfer, UseDeload, UseExerciseHistory, UseExercises, UseSettings, UseToday, UseWorkout } from './hooks';
 
 // Pure queries (take a CoreState snapshot)
 export {
   cardioSlot,
+  deloadDue,
+  deloadSets,
   detectPRs,
   exerciseHistory,
+  finisherPrescription,
   finisherOffer,
   getActiveEntries,
   getCardioHistory,
@@ -84,6 +88,7 @@ export {
   prefillSets,
   resolveSlotExerciseId,
   suggestProgression,
+  warmupPrescription,
 } from './logic';
 
 // Bodyweight
@@ -97,6 +102,7 @@ export {
   BUILTIN_CARDIO,
   DEFAULT_ACTIVITY,
   DEFAULT_BODYWEIGHT_LOG,
+  DEFAULT_DELOAD_WEEK_LENGTH,
   DEFAULT_FINISHER,
   DEFAULT_GOAL,
   DEFAULT_INCREMENTS,

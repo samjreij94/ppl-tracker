@@ -30,7 +30,9 @@ useExercises() => { exercises: Exercise[]; byId; groups: Record<id, Substitution
   addCustomExercise(input: CustomExerciseInput): Exercise; removeCustomExercise(id) }
 useSettings() => { settings: Settings; goal: Goal; finisherConfig: FinisherConfig; activity: ActivityConfig;
   bodyweightLog: BodyweightLogConfig; updateSettings(patch: SettingsPatch): Settings; clearPermanentSwap(slotId);
-  convertWeight(v, from, to); roundToIncrement(v, inc, mode?) }
+  convertWeight(v, from, to); roundToIncrement(v, inc, mode?);
+  deload: DeloadStatus; startDeload(opts?: { weekLength? }): DeloadStatus; endDeload(): DeloadStatus }
+useDeload() => { status: DeloadStatus; startDeload(opts?: { weekLength? }): DeloadStatus; endDeload(): DeloadStatus }
 useBodyweight() => { entries: BodyweightEntry[] /* new→old */; trend: BodyweightTrend; config: BodyweightLogConfig; goal: Goal;
   logBodyweight({ date?: 'YYYY-MM-DD' /* default today */, weight, unit?, note? }): BodyweightEntry /* upsert per date */;
   deleteBodyweight(date): void }
@@ -42,22 +44,24 @@ useCore(): Core;  useCoreState(): CoreState;  <CoreProvider core={createCore(...
 ## View types
 
 ```ts
-TodayView { day: ProgramDay; rotationIndex; isNext; slots: TodaySlot[]; finisher: TodayFinisher | null; activeSession }
+TodayView { day: ProgramDay; rotationIndex; isNext; slots: TodaySlot[]; finisher: TodayFinisher | null; activeSession;
+            deload: DeloadStatus }
+DeloadStatus { active; startedAt?; endsAt?; daysLeft?; due; weeksSinceLast: number | null; reason: string | null; dueAfterWeeks }
 TodayFinisher { slot: CardioSlot; exercise: CardioExercise; programmedExerciseId; swapped; durationMin /* last finisher or 15 */;
-                minDurationMin; maxDurationMin; intensity: 'zone-2'; effortNote?; last: CardioHistoryItem | null; autoAdd }
+                minDurationMin; maxDurationMin; intensity: 'zone-2'; effortNote?; prescription: string; last: CardioHistoryItem | null; autoAdd }
 CardioHistoryItem { sessionId; date; exerciseId; role: 'warmup' | 'finisher'; durationMin }
 BodyweightTrend { unit; points: { date; weight; avg }[]; currentAvg; previousAvg;
                   weeklyRate: { lossPerWeek; lossPctPerWeek } | null /* positive = losing */;
                   status: 'tooSlow' | 'onTrack' | 'tooFast' | 'insufficientData'; target: {min, max}; entriesThisWindow }
 TodaySlot = TodayCardioSlot | TodayStrengthSlot
 TodayCardioSlot   { kind:'cardio'; slot: CardioSlot; exercise: CardioExercise; programmedExerciseId; swapped;
-                    durationMin; last: { sessionId; date; durationMin } | null }
+                    durationMin; last: { sessionId; date; durationMin } | null; prescription? /* exercise defaultPrescription */ }
 TodayStrengthSlot { kind:'strength'; slot: Slot; exercise: StrengthExercise; programmedExerciseId; swapped;
                     target: { sets; repRange: {min,max}; restSec }; last: LastPerformance | null; progression: ProgressionHint }
 LastPerformance   { sessionId; date; sets: SetLog[] }
 DaySummary        { day; rotationIndex; isNext; lastDoneAt? }
 ActiveEntryView   { index; entry: SessionEntry; exercise; programmedExerciseId; swapped;
-                    last: LastPerformance | null; progression: ProgressionHint | null }
+                    last: LastPerformance | null; progression: ProgressionHint | null; prescription? /* cardio only */ }
 ```
 
 ## Domain types (see `types.ts` JSDoc)
@@ -66,19 +70,20 @@ ActiveEntryView   { index; entry: SessionEntry; exercise; programmedExerciseId; 
 `Program {id, name, days, rotations: {3: DayId[], 6: DayId[]}}`, `ProgramDay {id, name, type?, variant?, focus?, slots}`,
 `Slot {id:'push-a-1', kind:'strength', exerciseId, sets, repRange, restSec?, substitutionGroup?, order?}`,
 `CardioSlot {id:'cardio-warmup', kind:'cardio', exerciseId, durationMin, substitutionGroup:'cardio-warmup'}`,
-`WorkoutSession {id, programId, dayId, startedAt, finishedAt?, unit, entries}`,
+`WorkoutSession {id, programId, dayId, startedAt, finishedAt?, unit, entries, deload?: boolean, prs?: PRResult[]}`,
 `SessionEntry = StrengthEntry {kind:'strength', slotId, exerciseId, sets, target:{sets, repRange}, restSec} | CardioEntry {kind:'cardio', role:'warmup'|'finisher', slotId:'cardio-warmup'|'cardio-finisher', exerciseId, durationMin, done, timestamp?, metrics?}`,
-`SetLog {weight, reps, done, timestamp?}`, `Settings {unit, defaultRestSec, schedule: 3|6, increments, permanentSwaps, cardio:{enabled, defaultDurationMin}, finisher:{autoAdd}, goal: Goal}`,
+`SetLog {weight, reps, done, timestamp?}`, `Settings {unit, defaultRestSec, schedule: 3|6, increments, permanentSwaps, cardio:{enabled, defaultDurationMin}, finisher:{autoAdd}, goal: Goal, deload: {active, startedAt?, weekLength /* days, 7 */, lastEndedAt?}}`,
 `Goal {type:'fat-loss', targetLossPctBodyweightPerWeek:{min,max}, proteinGPerLbGoalBodyweight?}`, `BodyweightEntry {date:'YYYY-MM-DD', weight, unit, note?}`,
 `PRResult {kind:'e1rm'|'topSet'|'repsAtWeight', exerciseId, value, previous?, weight, reps, date?, sessionId?}`,
 `ExerciseSeriesPoint {date, sessionId, e1rm, topSet:{weight, reps}, volume}`,
-`ProgressionHint {exerciseId, action:'increase'|'addReps'|'hold'|'dropSet'|'reduceLoad', newWeight?, increment?, targetReps?, newSets?, rules:'base'|'cut', message}`.
+`ProgressionHint {exerciseId, action:'increase'|'addReps'|'hold'|'dropSet'|'reduceLoad'|'deload', newWeight?, increment?, targetReps?, newSets?, rules:'base'|'cut', message}`.
 
 ## Imperative / pure
 
 `getCore()` → `Core` with all actions above + `getState()`, `subscribe()`, `init()`, `flush()`, `deleteSession(id)`, `exportJSON()`, `importJSON()`,
-`logBodyweight`, `deleteBodyweight`, `getBodyweightTrend()`.
-Pure (take a `CoreState`): `getToday(state, dayId?)`, `getDays`, `getProgression(state, id, target?)`, `getSwaps(state, id, slotId?)`,
+`logBodyweight`, `deleteBodyweight`, `getBodyweightTrend()`, `startDeload(opts?)`, `endDeload()`, `getDeloadStatus()`.
+Pure (take a `CoreState`): `getToday(state, dayId?, now?)`, `deloadDue(state, now?)`, `deloadSets(sets, pct?)`,
+`finisherPrescription(finisherConfig, exercise, durationMin)`, `warmupPrescription(exercise, durationMin)`, `getDays`, `getProgression(state, id, target?)`, `getSwaps(state, id, slotId?)`,
 `getSessions(state, {exerciseId?, limit?})`, `getExerciseSeries`, `getPRs`, `getActiveEntries`, `getCardioHistory(state, {exerciseId?, role?})`,
 `finisherOffer(state)`, `nextDayId(program, sessions, schedule)`, `bodyweightTrend(entries, unit, goal, windowDays?)`, `localDate()`.
 Math: `epley`, `topSet`, `volume`, `bestE1rm`, `doneSets`, `convertWeight`, `roundToIncrement`, `detectPRs`, `prefillFromLast`, `suggestProgression`.
@@ -108,3 +113,49 @@ Math: `epley`, `topSet`, `volume`, `bestE1rm`, `doneSets`, `convertWeight`, `rou
 Additive exports in phase 2: `plannedSets`, `prefillSets`, `convertDistance`, `convertCardioMetrics`, type
 `ExerciseHistoryItem`; fields `CardioMetrics.distance`, `CardioSlot.metrics`, `TodayCardioSlot.metrics`,
 `TodayFinisher.metrics`, `TodayStrengthSlot.plannedSets`, `LastPerformance.sourceUnit`; `prefillFromLast(target, last, {roundTo?})`.
+
+## Behavior details (phase 3)
+
+- **Prefill applies the hint** (`prefillSets` / `startSession` / session swaps). Prefill source = the exercise's last
+  **non-deload** session. Then:
+  - `increase` / `reduceLoad`: every **working set** (source set at the last top-set weight) gets `hint.newWeight` and
+    reps **reset to `repRange.min`** (= `hint.targetReps`; double progression restarts at the bottom of the range after a
+    load change, per the seed's `afterIncrease`). Lighter back-off sets keep their last weight/reps.
+  - `addReps` / `hold` / `dropSet`: last weight and reps unchanged (dropSet only changes the set count).
+  - `deload`: all (reduced) sets get `hint.newWeight` × `repRange.min`.
+- **Deload** (seed `progressionRules.deload`; the cut keeps the same protocol, only the cadence changes):
+  - `startDeload({weekLength?})` → `settings.deload = {active: true, startedAt, weekLength (7)}`; `endDeload()` →
+    `{active: false, lastEndedAt}`. The store **auto-ends** an expired deload (`startedAt + weekLength` days) on `init()`
+    and `startSession()`, setting `lastEndedAt` to the scheduled end.
+  - While active: `plannedSets` = `deloadSets(sets)` = **max(1, ceil(sets × 0.5))** (floor 1 = the seed formula;
+    a 2-set slot becomes 1 set); hint `{action: 'deload', newSets, newWeight: last working weight × 0.9 snapped to the
+    increment (nearest), targetReps: repRange.min, message: 'deload week: 2 × 5 at 120 lb, stop at RIR 3-4'}` (no
+    `newWeight` without history). Sessions **started** while active get `session.deload = true` (an already-running
+    session is not changed).
+  - Deload sessions: PRs are still detected (logSet + finishSession, stored in `session.prs`); they appear in history,
+    series, PRs and `TodayStrengthSlot.last` (factual), but are **excluded from progression** (stall counting, hint,
+    prefill source), so they never trigger `reduceLoad`; after the deload, prefill resumes from pre-deload work.
+  - `deloadDue(state, now?)` / `TodayView.deload` / `useDeload().status` / `useSettings().deload`:
+    `weeksSinceLast` = whole weeks since `lastEndedAt` (else the newest deload session, else the first session; null with
+    none). `dueAfterWeeks` = **5 under the fat-loss cut** (`cutAdjustments.deloadNote` "around every 5-6 weeks"),
+    else `deload.frequencyWeeks.min` = **6**. `due` when `weeksSinceLast ≥ dueAfterWeeks` and there has been ≥ 1
+    non-deload session since the anchor (reason `"6 weeks since last deload"` / `"5 weeks since you started"`), or
+    early when **≥ 3 exercises** trained in the last 14 days currently have a `reduceLoad`/`dropSet` hint (seed trigger;
+    reason `"3 exercises stalled in the last 2 weeks"`). Never due while active. Due is advisory: nothing auto-starts.
+- **Per-session PRs**: `finishSession` stores its returned PRs on `session.prs` (computed vs prior history at finish time,
+  display unit at that time; `[]` when none). Old sessions have no `prs` (undefined) and load fine; export/import
+  round-trips it (`validateExport` rejects a non-array `prs` / non-boolean `deload`).
+- **Prescriptions**: `TodayCardioSlot.prescription` = the warm-up exercise's seed `defaultPrescription` (fallback
+  `"<min> min easy-moderate"`). `TodayFinisher.prescription` = `finisherPrescription(finisher, exercise, durationMin)`,
+  e.g. `"15 min Incline Treadmill Walk, easy zone 2: conversational pace, you can speak in full sentences (RPE 3-4)"`
+  (never the 10-min warm-up text; follows swaps and the chosen duration). `ActiveEntryView.prescription` gives the same
+  for cardio entries (finisher uses `entry.durationMin`). Seed fields are untouched.
+
+Additive in phase 3: `Settings.deload`, `WorkoutSession.deload?`, `WorkoutSession.prs?`, `ProgressionAction | 'deload'`,
+`ProgressionRules.deload.frequencyWeeks?/targetRir?`, `CutAdjustments.deloadFrequencyWeeks?/deloadNote?`, types
+`DeloadSettings`, `DeloadStatus`, `UseDeload`; `TodayView.deload`, `TodayFinisher.prescription`,
+`TodayCardioSlot.prescription?`, `ActiveEntryView.prescription?`, `ExerciseHistoryItem.deload?`; `Core.startDeload/endDeload/getDeloadStatus`,
+`useDeload`, `useSettings().deload/startDeload/endDeload`, `SettingsPatch.deload?`; pure `deloadDue`, `deloadSets`,
+`finisherPrescription`, `warmupPrescription`, `DEFAULT_DELOAD_WEEK_LENGTH`; optional params `getToday(state, dayId?, now?)`,
+`exerciseHistory(sessions, id, unit, {excludeDeload?})`, `lastPerformance(state, id, {excludeDeload?})`,
+`suggestProgression({..., deload?})`.

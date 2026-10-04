@@ -35,7 +35,9 @@ describe('research/exercises.json', () => {
     expect(s.program.days[0]).toMatchObject({ type: 'push', variant: 'A' });
     expect(s.increments.lb.barbell_lower).toBeGreaterThan(0);
     expect(s.progressionRules.stallConsecutiveSessions).toBe(2);
-    expect(s.progressionRules.cut).toEqual({ appliesWhenGoalType: 'fat-loss', maintainCountsAsSuccess: true, stallConsecutiveSessions: 3, stallLoadReductionPct: 5 });
+    expect(s.progressionRules.cut).toMatchObject({ appliesWhenGoalType: 'fat-loss', maintainCountsAsSuccess: true, stallConsecutiveSessions: 3, stallLoadReductionPct: 5 });
+    expect(s.progressionRules.cut?.deloadFrequencyWeeks).toEqual({ min: 5, max: 6 });
+    expect(s.progressionRules.deload).toEqual({ setReductionPct: 50, loadReductionPct: 10, frequencyWeeks: { min: 6, max: 8 }, targetRir: '3-4' });
     expect(s.goal).toMatchObject({ type: 'fat-loss', targetLossPctBodyweightPerWeek: { min: 0.5, max: 1 } });
     expect(s.finisher).toMatchObject({ defaultExerciseId: 'incline-treadmill', defaultDurationMin: 15, minDurationMin: 10, maxDurationMin: 20, intensity: 'zone-2', placement: 'after-lifting' });
     expect(s.activity).toMatchObject({ dailyStepTarget: 8000, stepTargetRange: { min: 7000, max: 10000 } });

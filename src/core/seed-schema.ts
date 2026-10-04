@@ -222,6 +222,11 @@ const range = (v: unknown): { min: number; max: number } | undefined => {
   const m = typeof v === 'string' ? /^\s*(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*$/.exec(v) : null;
   return m ? { min: Number(m[1]), max: Number(m[2]) } : undefined;
 };
+/** "…around every 5-6 weeks…" → {min: 5, max: 6}. */
+const weeksFromNote = (note: string | undefined): { min: number; max: number } | undefined => {
+  const m = note ? /(\d+)\s*(?:-|–|to)\s*(\d+)\s*weeks/i.exec(note) : null;
+  return m ? { min: Number(m[1]), max: Number(m[2]) } : undefined;
+};
 const strArr = (v: unknown): string[] | undefined =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : undefined;
 
@@ -505,6 +510,8 @@ export function loadSeed(input: unknown): SeedLoadResult {
     deload: {
       setReductionPct: num(dl.setReductionPct) ?? DEFAULT_PROGRESSION_RULES.deload.setReductionPct,
       loadReductionPct: num(dl.loadReductionPct) ?? DEFAULT_PROGRESSION_RULES.deload.loadReductionPct,
+      frequencyWeeks: range(dl.frequencyWeeks) ?? DEFAULT_PROGRESSION_RULES.deload.frequencyWeeks,
+      targetRir: str(dl.targetRir) ?? DEFAULT_PROGRESSION_RULES.deload.targetRir,
     },
     targetRir: { compound: str(rir.compound) ?? '1-3', isolation: str(rir.isolation) ?? '0-2' },
     minSetsPerSlot: 2,
@@ -517,6 +524,9 @@ export function loadSeed(input: unknown): SeedLoadResult {
       maintainCountsAsSuccess: cut.maintainCountsAsSuccess !== false,
       stallConsecutiveSessions: num(cut.stallConsecutiveSessions) ?? 3,
       stallLoadReductionPct: num(cut.stallLoadReductionPct) ?? 5,
+      deloadNote: str(cut.deloadNote),
+      // "around every 5-6 weeks" → {5, 6}; absent → base cadence (protocol itself is unchanged under the cut).
+      deloadFrequencyWeeks: weeksFromNote(str(cut.deloadNote)),
     };
   }
 

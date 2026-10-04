@@ -7,6 +7,7 @@ import {
   useCore,
   useCoreState,
   useDataTransfer,
+  useDeload,
   useExerciseHistory,
   useExercises,
   useSettings,
@@ -158,5 +159,23 @@ describe('hooks', () => {
     });
     expect(res!.ok).toBe(true);
     await waitFor(() => expect(r2.result.current.state.sessions).toHaveLength(1));
+  });
+
+  it('useDeload / useSettings: deload status + start/end actions', async () => {
+    const { core } = await makeCore();
+    const { result } = renderHook(() => ({ d: useDeload(), s: useSettings() }), { wrapper: wrap(core) });
+    expect(result.current.d.status).toMatchObject({ active: false, due: false });
+    expect(result.current.s.deload.active).toBe(false);
+    act(() => {
+      result.current.d.startDeload();
+    });
+    expect(result.current.d.status.active).toBe(true);
+    expect(result.current.s.settings.deload.active).toBe(true);
+    expect(result.current.s.deload.active).toBe(true);
+    act(() => {
+      result.current.s.endDeload();
+    });
+    expect(result.current.d.status.active).toBe(false);
+    expect(result.current.s.settings.deload.lastEndedAt).toBeDefined();
   });
 });

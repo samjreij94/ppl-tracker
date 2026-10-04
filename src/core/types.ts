@@ -276,6 +276,17 @@ export interface WorkoutSession {
   /** Unit all weights in this session were entered in. */
   unit: Unit;
   entries: SessionEntry[];
+  /**
+   * True when the session was started during a deload week (`Settings.deload.active`).
+   * Deload sessions still count for PRs, history and the rotation, but are
+   * EXCLUDED from progression (stall counting, prefill source, hints).
+   */
+  deload?: boolean;
+  /**
+   * PRs set in this session, computed against prior history at `finishSession`
+   * time (display unit at finish time). Absent on sessions finished before this field existed.
+   */
+  prs?: PRResult[];
 }
 
 /** Progression increments per unit per category. */
@@ -387,6 +398,39 @@ export interface Settings {
   finisher: { autoAdd: boolean };
   /** Active goal (defaults to the seed's). Drives the cut progression rules and the bodyweight trend status. */
   goal: Goal;
+  /** Deload-week state (see `startDeload` / `endDeload` / `deloadDue`). */
+  deload: DeloadSettings;
+}
+
+/** Persisted deload state (`Settings.deload`). */
+export interface DeloadSettings {
+  /** A deload week is in progress. */
+  active: boolean;
+  /** ISO time `startDeload()` was called (set while active). */
+  startedAt?: string;
+  /** Deload length in days (default 7). The store auto-ends a deload this many days after `startedAt`. */
+  weekLength: number;
+  /** ISO time the most recent deload ended (manual or auto). Anchors `deloadDue`. */
+  lastEndedAt?: string;
+}
+
+/** Result of `deloadDue(state)` / `TodayView.deload` / `useDeload()`. */
+export interface DeloadStatus {
+  /** A deload week is in progress. */
+  active: boolean;
+  startedAt?: string;
+  /** ISO time the active deload auto-ends (startedAt + weekLength days). */
+  endsAt?: string;
+  /** Whole days left in the active deload (≥ 0). */
+  daysLeft?: number;
+  /** True when a deload is recommended now (never while one is active). */
+  due: boolean;
+  /** Whole weeks since the last deload ended (or since the first session). Null with no sessions. */
+  weeksSinceLast: number | null;
+  /** Why it is due: `"6 weeks since last deload"`, `"3 exercises stalled in the last 2 weeks"`; null when not due. */
+  reason: string | null;
+  /** Weeks of training after which a deload becomes due (6 base, 5 under the fat-loss cut). */
+  dueAfterWeeks: number;
 }
 
 /** PR kinds. */
@@ -436,8 +480,10 @@ export interface ExerciseSeriesPoint {
  * - `dropSet`    — cut only: stall reached → drop one set on this slot (never below 2) before cutting load
  * - `reduceLoad` — stall: any set < repRange.min at the same load for `stallConsecutiveSessions`
  *                  sessions (base 2 → −10%; cut 3 → first hold/dropSet, then −5%), rounded to the increment
+ * - `deload`     — a deload week is active: ceil(sets × 50%) sets at the last working weight −10%
+ *                  (snapped to the increment), reps = repRange.min, stop at RIR 3-4
  */
-export type ProgressionAction = 'increase' | 'addReps' | 'hold' | 'dropSet' | 'reduceLoad';
+export type ProgressionAction = 'increase' | 'addReps' | 'hold' | 'dropSet' | 'reduceLoad' | 'deload';
 
 /** Double-progression hint for the next session (display unit). */
 export interface ProgressionHint {
@@ -449,7 +495,7 @@ export interface ProgressionHint {
   increment?: number;
   /** Target reps per set for next time. */
   targetReps?: number;
-  /** dropSet only: suggested set count (≥ 2). */
+  /** dropSet: suggested set count (≥ 2). deload: reduced set count (≥ 1). */
   newSets?: number;
   /** Which rule set produced this hint. */
   rules: 'base' | 'cut';
@@ -467,6 +513,10 @@ export interface CutAdjustments {
   stallConsecutiveSessions: number;
   /** 5 */
   stallLoadReductionPct: number;
+  /** Deload cadence under the cut, parsed from `deloadNote` ("around every 5-6 weeks"). */
+  deloadFrequencyWeeks?: { min: number; max: number };
+  /** Seed `deloadNote`, verbatim. */
+  deloadNote?: string;
 }
 
 /** Progression parameters (from the seed's `progressionRules`). */
@@ -476,7 +526,14 @@ export interface ProgressionRules {
   /** Never suggest fewer sets than this (2). */
   minSetsPerSlot: number;
   cut?: CutAdjustments;
-  deload: { setReductionPct: number; loadReductionPct: number };
+  deload: {
+    setReductionPct: number;
+    loadReductionPct: number;
+    /** Parsed from seed `frequencyWeeks` ("6-8"). */
+    frequencyWeeks?: { min: number; max: number };
+    /** e.g. "3-4" */
+    targetRir?: string;
+  };
   /** e.g. {compound: '1-3', isolation: '0-2'} */
   targetRir: Partial<Record<RirClass, string>>;
 }
