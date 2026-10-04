@@ -82,3 +82,29 @@ Pure (take a `CoreState`): `getToday(state, dayId?)`, `getDays`, `getProgression
 `getSessions(state, {exerciseId?, limit?})`, `getExerciseSeries`, `getPRs`, `getActiveEntries`, `getCardioHistory(state, {exerciseId?, role?})`,
 `finisherOffer(state)`, `nextDayId(program, sessions, schedule)`, `bodyweightTrend(entries, unit, goal, windowDays?)`, `localDate()`.
 Math: `epley`, `topSet`, `volume`, `bestE1rm`, `doneSets`, `convertWeight`, `roundToIncrement`, `detectPRs`, `prefillFromLast`, `suggestProgression`.
+
+## Behavior details (phase 2)
+
+- **Wait for `status !== 'loading'`** before calling actions (init loads storage asynchronously and replaces the snapshot).
+- **Prefill** (`startSession`, session swaps): sets copied per set from the exercise's OWN last finished session
+  (extra sets repeat the last one, surplus truncated); no history → weight 0, reps = repRange.min. If that session was
+  logged in the other unit, weights are converted and snapped to the exercise increment (e.g. 135 lb → 60 kg).
+- **Planned sets**: `TodayStrengthSlot.plannedSets` / `plannedSets(state, id, target)` = slot sets, or the hint's
+  `newSets` after a cut `dropSet` (never below 2). `startSession` prefills that many sets and sets `entry.target.sets` to it.
+  A dropped-set session whose planned sets all hit repMax counts for `increase`.
+- **Progression** `increase.newWeight` = last top-set weight + increment (snapped to the grid if last was logged in the
+  other unit). `reduceLoad` rounds to the increment. Per-exercise `increment` overrides convert across units.
+- **Warm-up exercise** = permanent swap on `cardio-warmup`, else the **last done warm-up's exercise** (remembered pick),
+  else `warmup.defaultExerciseId`. Duration + `metrics` prefill from the last done warm-up with that exercise.
+  Finisher: same rule with its own history (`role: 'finisher'`), duration clamped 10–20.
+- **Cardio metrics** `{incline?, speed?, distance?, calories?, output?}`: `speed`/`distance` are mph/mi in lb, km/h/km in kg;
+  `getCardioHistory` and prefills convert to the current unit (`convertDistance`, `convertCardioMetrics`).
+- **PRs** compare against prior sets only (history + earlier done sets this session); a first-ever set is never a PR;
+  editing an already-done set doesn't re-fire. `finishSession` returns the best new record per kind per exercise vs history.
+- **Custom exercises**: ids are `custom-<slug>[-n]` and never collide with seed ids; `removeCustomExercise` throws if the
+  exercise is in the active session; imports whose custom ids collide with seed ids are rejected.
+- **Import** validates everything first; any error → `{ok:false, errors}` and nothing changes.
+
+Additive exports in phase 2: `plannedSets`, `prefillSets`, `convertDistance`, `convertCardioMetrics`, type
+`ExerciseHistoryItem`; fields `CardioMetrics.distance`, `CardioSlot.metrics`, `TodayCardioSlot.metrics`,
+`TodayFinisher.metrics`, `TodayStrengthSlot.plannedSets`, `LastPerformance.sourceUnit`; `prefillFromLast(target, last, {roundTo?})`.

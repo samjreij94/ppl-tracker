@@ -163,6 +163,8 @@ export interface CardioSlot {
   exerciseId: string;
   durationMin: number;
   substitutionGroup: string;
+  /** Prefill from the last same-role cardio with this exercise (display-unit convention). */
+  metrics?: CardioMetrics;
 }
 
 export type AnySlot = Slot | CardioSlot;
@@ -246,11 +248,15 @@ export interface CardioEntry {
   metrics?: CardioMetrics;
 }
 
-/** Optional cardio readouts. `speed` is mph when the session unit is lb, km/h when kg. */
+/**
+ * Optional cardio readouts. `speed`/`distance` follow the session unit:
+ * lb → mph / miles, kg → km/h / km (converted on read, see `convertDistance`).
+ */
 export interface CardioMetrics {
   /** Treadmill incline, % */
   incline?: number;
   speed?: number;
+  distance?: number;
   calories?: number;
   /** Peloton output, kJ */
   output?: number;

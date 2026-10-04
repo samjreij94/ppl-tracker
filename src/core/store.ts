@@ -20,8 +20,8 @@ import {
   finisherOffer,
   exerciseHistory,
   getToday,
-  lastPerformance,
-  prefillFromLast,
+  getCardioHistory,
+  prefillSets,
   priorSetsFor,
 } from './logic';
 import { convertWeight, doneSets } from './math';
@@ -295,17 +295,20 @@ export function createCore(opts: CreateCoreOptions): Core {
     ...a,
     entries: a.entries.map((e, i) => (i === idx ? entry : e)),
   });
-  const prefillFor = (exerciseId: string, target: { sets: number; repRange: RepRange }) =>
-    prefillFromLast(target, lastPerformance(state, exerciseId));
+  const slotSets = (slotId: string, fallback: number) =>
+    state.program.days.flatMap((d) => d.slots).find((s) => s.id === slotId)?.sets ?? fallback;
   const clampFinisher = (n: number) => Math.min(state.finisher.maxDurationMin, Math.max(state.finisher.minDurationMin, n));
-  const finisherEntry = (exerciseId: string, durationMin: number): CardioEntry => ({
+  const finisherEntry = (exerciseId: string, durationMin: number, metrics?: CardioMetrics): CardioEntry => ({
     kind: 'cardio',
     role: 'finisher',
     slotId: FINISHER_SLOT_ID,
     exerciseId,
     durationMin,
     done: false,
+    ...(metrics ? { metrics: { ...metrics } } : {}),
   });
+  /** Finisher metrics prefill for a given exercise (last finisher with it). */
+  const finisherMetrics = (exerciseId: string) => getCardioHistory(state, { role: 'finisher', exerciseId })[0]?.metrics;
 
   const core: Core = {
     getState: () => state,
@@ -338,19 +341,31 @@ export function createCore(opts: CreateCoreOptions): Core {
       if (state.active) return state.active;
       const today = getToday(state, dayId);
       if (!today) throw new Error(`unknown day "${dayId ?? ''}"`);
-      const entries: SessionEntry[] = today.slots.map((t): SessionEntry =>
-        t.kind === 'cardio'
-          ? { kind: 'cardio', role: 'warmup', slotId: CARDIO_SLOT_ID, exerciseId: t.exercise.id, durationMin: t.durationMin, done: false }
-          : {
-              kind: 'strength',
-              slotId: t.slot.id,
-              exerciseId: t.exercise.id,
-              sets: prefillFromLast(t.target, t.last),
-              target: { sets: t.target.sets, repRange: t.target.repRange },
-              restSec: t.target.restSec,
-            },
-      );
-      if (state.settings.finisher.autoAdd && today.finisher) entries.push(finisherEntry(today.finisher.exercise.id, today.finisher.durationMin));
+      const entries: SessionEntry[] = today.slots.map((t): SessionEntry => {
+        if (t.kind === 'cardio') {
+          return {
+            kind: 'cardio',
+            role: 'warmup',
+            slotId: CARDIO_SLOT_ID,
+            exerciseId: t.exercise.id,
+            durationMin: t.durationMin,
+            done: false,
+            ...(t.metrics ? { metrics: { ...t.metrics } } : {}),
+          };
+        }
+        const sets = prefillSets(state, t.exercise.id, t.target);
+        return {
+          kind: 'strength',
+          slotId: t.slot.id,
+          exerciseId: t.exercise.id,
+          sets,
+          target: { sets: sets.length, repRange: t.target.repRange },
+          restSec: t.target.restSec,
+        };
+      });
+      if (state.settings.finisher.autoAdd && today.finisher) {
+        entries.push(finisherEntry(today.finisher.exercise.id, today.finisher.durationMin, today.finisher.metrics));
+      }
       const session: WorkoutSession = {
         id: uid(),
         programId: state.program.id,
@@ -415,7 +430,11 @@ export function createCore(opts: CreateCoreOptions): Core {
       const offer = finisherOffer(state);
       const exId = o.exerciseId ?? offer?.exercise.id;
       if (!exId || state.exercises[exId]?.kind !== 'cardio') throw new Error('no cardio exercise available for the finisher');
-      const entry = finisherEntry(exId, clampFinisher(o.durationMin ?? offer?.durationMin ?? state.finisher.defaultDurationMin));
+      const entry = finisherEntry(
+        exId,
+        clampFinisher(o.durationMin ?? offer?.durationMin ?? state.finisher.defaultDurationMin),
+        finisherMetrics(exId),
+      );
       setState({ active: { ...a, entries: [...a.entries, entry] } }, ['active']);
       return a.entries.length;
     },
@@ -491,11 +510,18 @@ export function createCore(opts: CreateCoreOptions): Core {
         if (scope === 'session' || untouched) {
           let next: SessionEntry;
           if (e.kind === 'cardio' && e.role === 'finisher') {
-            next = { ...e, exerciseId }; // finisher keeps its duration
+            // finisher keeps its duration; metrics re-prefilled for the new machine
+            const m = finisherMetrics(exerciseId);
+            next = { ...e, exerciseId, metrics: m ? { ...m } : undefined };
+            if (!m) delete next.metrics;
           } else if (e.kind === 'cardio') {
-            next = { ...e, exerciseId, durationMin: cardioSlot({ ...state, settings: { ...state.settings, permanentSwaps: { [CARDIO_SLOT_ID]: exerciseId } } })?.slot.durationMin ?? e.durationMin };
+            const c = cardioSlot({ ...state, settings: { ...state.settings, permanentSwaps: { ...state.settings.permanentSwaps, [CARDIO_SLOT_ID]: exerciseId } } });
+            next = { ...e, exerciseId, durationMin: c?.slot.durationMin ?? e.durationMin };
+            if (c?.slot.metrics) next.metrics = { ...c.slot.metrics };
+            else delete next.metrics;
           } else {
-            next = { ...e, exerciseId, sets: prefillFor(exerciseId, e.target) };
+            const sets = prefillSets(state, exerciseId, { sets: slotSets(slotId, e.target.sets), repRange: e.target.repRange });
+            next = { ...e, exerciseId, sets, target: { ...e.target, sets: sets.length } };
           }
           patch.active = replaceEntry(a, idx, next);
           keys.push('active');
@@ -546,6 +572,9 @@ export function createCore(opts: CreateCoreOptions): Core {
 
     removeCustomExercise(exerciseId) {
       if (!state.customExercises.some((e) => e.id === exerciseId)) return;
+      if (state.active?.entries.some((e) => e.exerciseId === exerciseId)) {
+        throw new Error(`"${exerciseId}" is in the active session; swap it out first`);
+      }
       const swaps = Object.fromEntries(Object.entries(state.settings.permanentSwaps).filter(([, v]) => v !== exerciseId));
       setState(
         { ...compose(state.customExercises.filter((e) => e.id !== exerciseId)), settings: { ...state.settings, permanentSwaps: swaps } },
@@ -594,6 +623,10 @@ export function createCore(opts: CreateCoreOptions): Core {
     async importJSON(json) {
       const { file, errors, warnings } = validateExport(json);
       if (!file) return { ok: false, errors, warnings };
+      const clash = file.customExercises.filter((e) => seedExercises.some((x) => x.id === e.id));
+      if (clash.length) {
+        return { ok: false, errors: clash.map((e) => `customExercises: id "${e.id}" collides with a seed exercise`), warnings };
+      }
       const sessions = [...file.sessions].filter((s) => s.finishedAt).sort((x, y) => (x.finishedAt! < y.finishedAt! ? -1 : 1));
       if (sessions.length !== file.sessions.length) warnings.push('unfinished sessions in "sessions" were skipped');
       setState(

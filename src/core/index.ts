@@ -76,9 +76,12 @@ export {
   getSessions,
   getSwaps,
   getToday,
+  type ExerciseHistoryItem,
   lastPerformance,
   nextDayId,
+  plannedSets,
   prefillFromLast,
+  prefillSets,
   resolveSlotExerciseId,
   suggestProgression,
 } from './logic';
@@ -87,7 +90,7 @@ export {
 export { bodyweightTrend, localDate } from './bodyweight';
 
 // Math
-export { bestE1rm, convertWeight, doneSets, epley, roundToIncrement, topSet, volume } from './math';
+export { bestE1rm, convertCardioMetrics, convertDistance, convertWeight, doneSets, epley, roundToIncrement, topSet, volume } from './math';
 
 // Defaults
 export {

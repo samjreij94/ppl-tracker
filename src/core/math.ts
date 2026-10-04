@@ -1,6 +1,7 @@
-import type { SetLog, Unit } from './types';
+import type { CardioMetrics, SetLog, Unit } from './types';
 
 const LB_PER_KG = 2.2046226218;
+const KM_PER_MI = 1.609344;
 
 /**
  * Epley estimated 1RM: `w * (1 + reps / 30)`; `reps === 1` returns `w`; reps ≤ 0 or w ≤ 0 → 0.
@@ -15,6 +16,24 @@ export function epley(weight: number, reps: number): number {
 export function convertWeight(value: number, from: Unit, to: Unit): number {
   if (from === to) return value;
   return from === 'kg' ? value * LB_PER_KG : value / LB_PER_KG;
+}
+
+/**
+ * Convert a distance or speed between unit conventions: `lb` users get miles
+ * (mph), `kg` users get kilometres (km/h). No rounding.
+ */
+export function convertDistance(value: number, from: Unit, to: Unit): number {
+  if (from === to) return value;
+  return from === 'lb' ? value * KM_PER_MI : value / KM_PER_MI;
+}
+
+/** Convert cardio metrics' `speed`/`distance` between unit conventions (2 decimals); other fields unchanged. */
+export function convertCardioMetrics(m: CardioMetrics, from: Unit, to: Unit): CardioMetrics {
+  if (from === to) return { ...m };
+  const out: CardioMetrics = { ...m };
+  if (m.speed !== undefined) out.speed = Math.round(convertDistance(m.speed, from, to) * 100) / 100;
+  if (m.distance !== undefined) out.distance = Math.round(convertDistance(m.distance, from, to) * 100) / 100;
+  return out;
 }
 
 /**

@@ -2,7 +2,7 @@
  * Pure functions: rotation, prefill, progression, PRs, history, swaps, Today.
  * No I/O. All weights returned are in `state.settings.unit` (display unit).
  */
-import { bestE1rm, convertWeight, doneSets, epley, roundToIncrement, topSet, volume } from './math';
+import { bestE1rm, convertCardioMetrics, convertWeight, doneSets, epley, roundToIncrement, topSet, volume } from './math';
 import type {
   ActiveEntryView,
   CardioHistoryItem,
@@ -88,29 +88,44 @@ export function resolveSlotExerciseId(state: CoreState, slotId: string, programm
   return swap && state.exercises[swap] ? swap : programmedId;
 }
 
+/** One finished session's done sets of an exercise (weights converted to the requested unit). */
+export interface ExerciseHistoryItem {
+  sessionId: string;
+  /** ISO start time of the session. */
+  date: string;
+  sets: SetLog[];
+  /** Unit the session was LOGGED in (before conversion). */
+  sourceUnit: Unit;
+  /** Planned sets for this exercise in that session (Σ entry.target.sets). */
+  targetSets: number;
+}
+
 /** Done sets of an exercise across FINISHED sessions, newest session first, converted to `unit`. */
 export function exerciseHistory(
   sessions: readonly WorkoutSession[],
   exerciseId: string,
   unit: Unit,
-): Array<{ sessionId: string; date: string; sets: SetLog[] }> {
-  const out: Array<{ sessionId: string; date: string; sets: SetLog[] }> = [];
+): ExerciseHistoryItem[] {
+  const out: ExerciseHistoryItem[] = [];
   for (let i = sessions.length - 1; i >= 0; i--) {
     const s = sessions[i];
     if (!s.finishedAt) continue;
     const sets: SetLog[] = [];
+    let targetSets = 0;
     for (const e of s.entries) {
       if (e.kind !== 'strength' || e.exerciseId !== exerciseId) continue;
+      targetSets += e.target?.sets ?? e.sets.length;
       for (const set of doneSets(e.sets)) sets.push({ ...set, weight: r2(convertWeight(set.weight, s.unit, unit)) });
     }
-    if (sets.length) out.push({ sessionId: s.id, date: s.startedAt, sets });
+    if (sets.length) out.push({ sessionId: s.id, date: s.startedAt, sets, sourceUnit: s.unit, targetSets });
   }
   return out;
 }
 
 /** Last finished performance of an exercise (display unit), or null. Substitutes have their OWN history. */
 export function lastPerformance(state: CoreState, exerciseId: string): LastPerformance | null {
-  return exerciseHistory(state.sessions, exerciseId, state.settings.unit)[0] ?? null;
+  const h = exerciseHistory(state.sessions, exerciseId, state.settings.unit)[0];
+  return h ? { sessionId: h.sessionId, date: h.date, sets: h.sets, sourceUnit: h.sourceUnit } : null;
 }
 
 /* ------------------------------------------------------------------ prefill */
@@ -124,12 +139,43 @@ export function lastPerformance(state: CoreState, exerciseId: string): LastPerfo
 export function prefillFromLast(
   target: { sets: number; repRange: RepRange },
   last: Pick<LastPerformance, 'sets'> | null,
+  opts: { roundTo?: number } = {},
 ): SetLog[] {
   const src = last?.sets.length ? last.sets : null;
   return Array.from({ length: Math.max(1, target.sets) }, (_, i) => {
     const s = src ? src[Math.min(i, src.length - 1)] : null;
-    return { weight: s?.weight ?? 0, reps: s?.reps ?? target.repRange.min, done: false };
+    const w = s?.weight ?? 0;
+    return { weight: opts.roundTo ? roundToIncrement(w, opts.roundTo) : w, reps: s?.reps ?? target.repRange.min, done: false };
   });
+}
+
+/**
+ * Planned set count for an exercise in a slot: the slot's sets, or the
+ * progression hint's `newSets` when it says `dropSet` (never below
+ * `progressionRules.minSetsPerSlot`, 2).
+ */
+export function plannedSets(state: CoreState, exerciseId: string, target: { sets: number; repRange: RepRange }): number {
+  const hint = getProgression(state, exerciseId, target);
+  if (hint?.action === 'dropSet' && hint.newSets !== undefined) {
+    return Math.max(Math.min(state.progressionRules.minSetsPerSlot, target.sets), hint.newSets);
+  }
+  return target.sets;
+}
+
+/**
+ * Prefilled sets for an exercise in a slot (what `startSession` / a swap uses):
+ * `plannedSets` sets copied from the exercise's OWN last session; weights
+ * converted to the display unit and, if that session was logged in the other
+ * unit, rounded to the exercise increment.
+ */
+export function prefillSets(state: CoreState, exerciseId: string, target: { sets: number; repRange: RepRange }): SetLog[] {
+  const last = lastPerformance(state, exerciseId);
+  const ex = state.exercises[exerciseId];
+  const roundTo =
+    last && last.sourceUnit && last.sourceUnit !== state.settings.unit && ex?.kind === 'strength'
+      ? getIncrement(ex, state.settings)
+      : undefined;
+  return prefillFromLast({ sets: plannedSets(state, exerciseId, target), repRange: target.repRange }, last, { roundTo });
 }
 
 /* ------------------------------------------------------------------ progression */
@@ -154,7 +200,8 @@ export function suggestProgression(args: {
   exerciseId: string;
   repRange: RepRange;
   targetSets: number;
-  history: ReadonlyArray<{ sets: SetLog[] }>;
+  /** Newest first. `sourceUnit`/`targetSets` (from `exerciseHistory`) refine rounding and the all-sets check. */
+  history: ReadonlyArray<{ sets: SetLog[]; sourceUnit?: Unit; targetSets?: number }>;
   unit: Unit;
   increment: number;
   rules: ProgressionRules;
@@ -173,8 +220,11 @@ export function suggestProgression(args: {
   const w = topSet(last.sets)?.weight ?? 0;
   const atW = (sets: SetLog[]) => sets.filter((s) => Math.abs(s.weight - w) < 0.01);
   const working = atW(last.sets);
-  if (working.length >= Math.max(1, targetSets) && working.every((s) => s.reps >= repRange.max)) {
-    return { exerciseId, action: 'increase', newWeight: r2(w + increment), increment, targetReps: repRange.min, rules: tag, message: `add ${increment} ${unit}` };
+  const needSets = Math.max(1, Math.min(targetSets, last.targetSets ?? targetSets));
+  if (working.length >= needSets && working.every((s) => s.reps >= repRange.max)) {
+    // Logged in the other unit → snap to this unit's increment grid.
+    const newWeight = last.sourceUnit && last.sourceUnit !== unit ? roundToIncrement(w + increment, increment) : r2(w + increment);
+    return { exerciseId, action: 'increase', newWeight, increment, targetReps: repRange.min, rules: tag, message: `add ${increment} ${unit}` };
   }
   const belowMin = (sets: SetLog[]) => atW(sets).some((s) => s.reps < repRange.min);
   const sameAsPrev = (a: SetLog[], b: SetLog[] | undefined) => {
@@ -363,21 +413,39 @@ export function getSwaps(state: CoreState, exerciseId: string, slotId?: string):
 
 /* ------------------------------------------------------------------ today */
 
-/** The warm-up cardio slot (after permanent swap), or null if cardio is disabled. */
+/**
+ * The warm-up cardio slot, or null if cardio is disabled. Exercise = permanent
+ * swap on `CARDIO_SLOT_ID`, else the remembered last warm-up pick, else
+ * `warmup.defaultExerciseId`. Duration + metrics prefill from the last warm-up
+ * with that exercise (else its `defaultDurationMin`, else settings.cardio).
+ */
 export function cardioSlot(state: CoreState): { slot: CardioSlot; exercise: CardioExercise } | null {
   if (!state.settings.cardio.enabled) return null;
-  const id = resolveSlotExerciseId(state, CARDIO_SLOT_ID, state.warmupExerciseId);
-  const ex = state.exercises[id];
-  if (!ex || ex.kind !== 'cardio') return null;
+  const lastAny = getCardioHistory(state, { role: 'warmup' })[0];
+  const candidates = [state.settings.permanentSwaps[CARDIO_SLOT_ID], lastAny?.exerciseId, state.warmupExerciseId];
+  const ex = candidates.map((id) => (id ? state.exercises[id] : undefined)).find((e): e is CardioExercise => e?.kind === 'cardio');
+  if (!ex) return null;
   const last = getCardioHistory(state, { exerciseId: ex.id, role: 'warmup' })[0];
   const durationMin = last?.durationMin ?? ex.defaultDurationMin ?? state.settings.cardio.defaultDurationMin;
   return {
-    slot: { id: CARDIO_SLOT_ID, kind: 'cardio', role: 'warmup', exerciseId: ex.id, durationMin, substitutionGroup: CARDIO_GROUP_ID },
+    slot: {
+      id: CARDIO_SLOT_ID,
+      kind: 'cardio',
+      role: 'warmup',
+      exerciseId: ex.id,
+      durationMin,
+      substitutionGroup: CARDIO_GROUP_ID,
+      ...(last?.metrics ? { metrics: last.metrics } : {}),
+    },
     exercise: ex,
   };
 }
 
-/** Done cardio entries (warm-ups and finishers), newest first. */
+/**
+ * Done cardio entries (warm-ups and finishers), newest first. `metrics.speed`
+ * and `metrics.distance` are converted to the display unit's convention
+ * (lb → mph/mi, kg → km/h/km). Cardio never appears in strength stats.
+ */
 export function getCardioHistory(state: CoreState, opts: { exerciseId?: string; role?: CardioRole } = {}): CardioHistoryItem[] {
   const out: CardioHistoryItem[] = [];
   for (let i = state.sessions.length - 1; i >= 0; i--) {
@@ -387,7 +455,14 @@ export function getCardioHistory(state: CoreState, opts: { exerciseId?: string; 
       const role: CardioRole = e.role ?? 'warmup';
       if (opts.role && role !== opts.role) continue;
       if (opts.exerciseId && e.exerciseId !== opts.exerciseId) continue;
-      out.push({ sessionId: s.id, date: s.startedAt, exerciseId: e.exerciseId, role, durationMin: e.durationMin, ...(e.metrics ? { metrics: e.metrics } : {}) });
+      out.push({
+        sessionId: s.id,
+        date: s.startedAt,
+        exerciseId: e.exerciseId,
+        role,
+        durationMin: e.durationMin,
+        ...(e.metrics ? { metrics: convertCardioMetrics(e.metrics, s.unit, state.settings.unit) } : {}),
+      });
     }
   }
   return out;
@@ -396,7 +471,9 @@ export function getCardioHistory(state: CoreState, opts: { exerciseId?: string; 
 /**
  * The optional finisher: exercise = permanent swap on `FINISHER_SLOT_ID`, else
  * the last finisher's exercise, else `finisher.defaultExerciseId`; duration =
- * last finisher's (clamped to min..max) else `finisher.defaultDurationMin`.
+ * last finisher's (clamped to min..max) else `finisher.defaultDurationMin`
+ * (the exercise's own warm-up duration is ignored); metrics from the last
+ * finisher with that exercise.
  */
 export function finisherOffer(state: CoreState): TodayFinisher | null {
   const f = state.finisher;
@@ -407,8 +484,18 @@ export function finisherOffer(state: CoreState): TodayFinisher | null {
   if (!ex) return null;
   const clamp = (n: number) => Math.min(f.maxDurationMin, Math.max(f.minDurationMin, n));
   const durationMin = clamp(last?.durationMin ?? f.defaultDurationMin);
+  const sameEx = getCardioHistory(state, { role: 'finisher', exerciseId: ex.id })[0];
+  const metrics = sameEx?.metrics;
   return {
-    slot: { id: FINISHER_SLOT_ID, kind: 'cardio', role: 'finisher', exerciseId: ex.id, durationMin, substitutionGroup: f.pattern },
+    slot: {
+      id: FINISHER_SLOT_ID,
+      kind: 'cardio',
+      role: 'finisher',
+      exerciseId: ex.id,
+      durationMin,
+      substitutionGroup: f.pattern,
+      ...(metrics ? { metrics } : {}),
+    },
     exercise: ex,
     programmedExerciseId: f.defaultExerciseId,
     swapped: ex.id !== f.defaultExerciseId,
@@ -419,6 +506,7 @@ export function finisherOffer(state: CoreState): TodayFinisher | null {
     effortNote: f.effortNote,
     last,
     autoAdd: state.settings.finisher.autoAdd,
+    ...(metrics ? { metrics } : {}),
   };
 }
 
@@ -444,6 +532,7 @@ export function getToday(state: CoreState, dayId?: string): TodayView | null {
       swapped: c.exercise.id !== state.warmupExerciseId,
       durationMin: c.slot.durationMin,
       last: getCardioHistory(state, { exerciseId: c.exercise.id, role: 'warmup' })[0] ?? null,
+      ...(c.slot.metrics ? { metrics: c.slot.metrics } : {}),
     };
     slots.push(t);
   }
@@ -459,6 +548,7 @@ export function getToday(state: CoreState, dayId?: string): TodayView | null {
       programmedExerciseId: slot.exerciseId,
       swapped: exId !== slot.exerciseId,
       target,
+      plannedSets: plannedSets(state, exId, target),
       last: lastPerformance(state, exId),
       progression: getProgression(state, exId, target)!,
     };

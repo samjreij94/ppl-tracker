@@ -18,6 +18,7 @@ import type {
   SetLog,
   Slot,
   StrengthExercise,
+  Unit,
   SubstitutionGroup,
   WorkoutSession,
 } from './types';
@@ -62,6 +63,8 @@ export interface LastPerformance {
   /** ISO start time of that session. */
   date: string;
   sets: SetLog[];
+  /** Unit that session was logged in (sets are already converted to the display unit). */
+  sourceUnit?: Unit;
 }
 
 /** A strength slot as shown on the Today screen (after permanent swaps). */
@@ -74,6 +77,8 @@ export interface TodayStrengthSlot {
   programmedExerciseId: string;
   swapped: boolean;
   target: { sets: number; repRange: RepRange; restSec: number };
+  /** Sets `startSession` will prefill: `target.sets`, or fewer after a cut `dropSet` hint (never < 2). */
+  plannedSets: number;
   /** Last session's sets for `exercise` (its OWN history), or null. */
   last: LastPerformance | null;
   progression: ProgressionHint;
@@ -100,6 +105,8 @@ export interface TodayCardioSlot {
   durationMin: number;
   /** Last done warm-up with this exercise. */
   last: CardioHistoryItem | null;
+  /** Prefilled metrics (from `last`). */
+  metrics?: CardioMetrics;
 }
 
 /** The optional finisher offered after the last lifting slot (not in `slots`; add via `addFinisher`). */
@@ -120,6 +127,8 @@ export interface TodayFinisher {
   last: CardioHistoryItem | null;
   /** True if `settings.finisher.autoAdd` — startSession will include it. */
   autoAdd: boolean;
+  /** Prefilled metrics (last finisher with this exercise). */
+  metrics?: CardioMetrics;
 }
 
 export type TodaySlot = TodayCardioSlot | TodayStrengthSlot;
