@@ -54,14 +54,14 @@ export function ExerciseLog({ ex, unit, prSetIndex, onSetChange, onToggleDone, o
               </div>
               {isActive && (
                 <div className="set-edit">
-                  <label>
+                  <div>
                     <span className="lbl">Weight ({unit})</span>
                     <Stepper label="Weight" suffix={unit} value={s.weight} step={weightStep(unit)} max={2000} onChange={(v) => onSetChange(i, { weight: v })} />
-                  </label>
-                  <label>
+                  </div>
+                  <div>
                     <span className="lbl">Reps</span>
                     <Stepper label="Reps" value={s.reps} step={1} max={100} decimals={0} onChange={(v) => onSetChange(i, { reps: v })} />
-                  </label>
+                  </div>
                 </div>
               )}
             </div>

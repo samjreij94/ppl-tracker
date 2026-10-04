@@ -150,7 +150,7 @@ h2.section { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; 
 .set-row.active .stepper { background: var(--bg); }
 .stepper button { height: 100%; border: 0; background: transparent; font-size: 26px; font-weight: 700; color: var(--text); min-width: var(--tap); padding: 0; }
 .stepper button:active { background: var(--surface-3); }
-.stepper input { width: 100%; min-width: 0; background: transparent; border: 0; text-align: center; font-size: 19px; font-weight: 800; padding: 0; font-variant-numeric: tabular-nums; }
+.stepper input { align-self: stretch; height: 100%; min-height: 48px; width: 100%; min-width: 0; background: transparent; border: 0; text-align: center; font-size: 19px; font-weight: 800; padding: 0; font-variant-numeric: tabular-nums; }
 .stepper input:focus { outline: 2px solid var(--info); outline-offset: -2px; border-radius: 6px; }
 
 .done-btn { width: 56px; height: 56px; border-radius: 14px; border: 2px solid var(--border); background: var(--surface-2); display: grid; place-items: center; color: var(--text-dim); padding: 0; }
@@ -386,3 +386,8 @@ h2.section { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; 
 .name-input:focus { outline: 2px solid var(--info); outline-offset: -2px; }
 .finisher-quiet { width: 100%; margin-top: 12px; }
 .setting-col .seg button { font-size: 15px; padding: 0 4px; }
+
+/* Discard + history delete (QC fixes) */
+.btn-discard { color: var(--danger); min-height: 48px; padding: 0 18px; }
+.hist-del { flex: 0 0 auto; width: 48px; height: 48px; margin-right: -12px; border: 0; background: transparent; color: var(--text-dim, #8a93a0); font-size: 26px; line-height: 1; }
+.hist-del:active { color: var(--danger); }

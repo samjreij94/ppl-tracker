@@ -100,9 +100,9 @@ export function CardioCard({ cardio, unit, timer, onTimer, onChange, onToggleDon
       </div>
 
       <div className="grid2" style={{ marginTop: 12 }}>
-        <label className="field-s"><span className="lbl">Minutes{cardio.minMinutes != null && cardio.maxMinutes != null ? <em> {cardio.minMinutes}–{cardio.maxMinutes}</em> : null}</span>
+        <div className="field-s"><span className="lbl">Minutes{cardio.minMinutes != null && cardio.maxMinutes != null ? <em> {cardio.minMinutes}–{cardio.maxMinutes}</em> : null}</span>
           <Stepper label={isFinisher ? 'Finisher minutes' : 'Minutes'} value={cardio.minutes} step={1} min={cardio.minMinutes ?? 1} max={cardio.maxMinutes ?? 180} decimals={0} onChange={(v) => { onChange({ minutes: v }); if (!running) reset(); }} />
-        </label>
+        </div>
         <div className="cardio-timer">
           <span className="lbl">Timer</span>
           <div className={`timer-box num${running ? ' running' : ''}${finished ? ' finished' : ''}`} role="timer" aria-label="Cardio timer">{mm}:{ss}</div>
@@ -111,21 +111,21 @@ export function CardioCard({ cardio, unit, timer, onTimer, onChange, onToggleDon
 
       {cardio.kind !== 'peloton' ? (
         <div className="grid2" style={{ marginTop: 10 }}>
-          <label className="field-s"><span className="lbl">Incline % <em>optional</em></span>
+          <div className="field-s"><span className="lbl">Incline % <em>optional</em></span>
             <Stepper label="Incline percent" value={cardio.incline ?? 0} step={0.5} max={30} onChange={(v) => onChange({ incline: v })} />
-          </label>
-          <label className="field-s"><span className="lbl">Speed {speedUnit} <em>optional</em></span>
+          </div>
+          <div className="field-s"><span className="lbl">Speed {speedUnit} <em>optional</em></span>
             <Stepper label={`Speed ${speedUnit}`} value={cardio.speed ?? 0} step={0.1} max={20} onChange={(v) => onChange({ speed: v })} />
-          </label>
+          </div>
         </div>
       ) : (
         <div className="grid2" style={{ marginTop: 10 }}>
-          <label className="field-s"><span className="lbl">Output kJ <em>optional</em></span>
+          <div className="field-s"><span className="lbl">Output kJ <em>optional</em></span>
             <Stepper label="Output kJ" value={cardio.output ?? 0} step={5} max={2000} decimals={0} onChange={(v) => onChange({ output: v })} />
-          </label>
-          <label className="field-s"><span className="lbl">Calories <em>optional</em></span>
+          </div>
+          <div className="field-s"><span className="lbl">Calories <em>optional</em></span>
             <Stepper label="Calories" value={cardio.calories ?? 0} step={5} max={3000} decimals={0} onChange={(v) => onChange({ calories: v })} />
-          </label>
+          </div>
         </div>
       )}
 

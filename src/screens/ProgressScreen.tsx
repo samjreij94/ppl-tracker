@@ -12,6 +12,7 @@ interface Props {
   series: SeriesPoint[];
   metric: Metric;
   onSelect: (id: string) => void;
+  onDeleteSession?: (id: string) => void;
   onMetric: (m: Metric) => void;
   cardioMinutes?: { date: number; minutes: number }[];
   bodyweight: BodyweightVM;
@@ -25,7 +26,7 @@ const METRICS: { id: Metric; label: string }[] = [
 ];
 export const CARDIO_CHART_ID = '__cardio__';
 
-export function ProgressScreen({ unit, history, exercises, selectedId, series, metric, onSelect, onMetric, cardioMinutes, bodyweight, onLogBodyweight }: Props) {
+export function ProgressScreen({ unit, history, exercises, selectedId, series, metric, onSelect, onMetric, cardioMinutes, bodyweight, onLogBodyweight, onDeleteSession }: Props) {
   const isCardio = selectedId === CARDIO_CHART_ID;
   const points = useMemo(() => (isCardio
     ? (cardioMinutes ?? []).map((c) => ({ x: c.date, y: c.minutes }))
@@ -84,6 +85,9 @@ export function ProgressScreen({ unit, history, exercises, selectedId, series, m
                 </div>
               </div>
               {h.prs > 0 && <span className="pill pill-pr"><IconTrophy width={14} height={14} />{h.prs}</span>}
+              {onDeleteSession && (
+                <button type="button" className="hist-del" data-testid="delete-session" aria-label={`Delete ${h.dayName} workout`} onClick={() => onDeleteSession(h.id)}>×</button>
+              )}
             </div>
           ))}
         </div>

@@ -15,7 +15,7 @@ import {
   convertWeight,
   doneSets,
   getExerciseSeries,
-  getPRs,
+  sessionPRs,
   getSessions,
   useCore,
   useCoreState,
@@ -259,16 +259,6 @@ export function useUi() {
         ids.set(e.exerciseId, { name: state.exercises[e.exerciseId]?.name ?? e.exerciseId, last: Date.parse(ss.startedAt) });
       }
     }));
-    // TODO(core): no per-session "PRs set" record is stored; count the CURRENT records (e1rm/topSet) each session holds.
-    // = number of exercises whose current e1RM/top-set record was set in that session.
-    const prSets = new Map<string, Set<string>>();
-    for (const id of ids.keys()) {
-      for (const pr of getPRs(state, id)) {
-        if (!pr.sessionId || pr.kind === 'repsAtWeight') continue;
-        prSets.set(pr.sessionId, (prSets.get(pr.sessionId) ?? new Set()).add(id));
-      }
-    }
-    const prCount = new Map([...prSets].map(([k, v]) => [k, v.size]));
     const history: HistoryItem[] = sessions.map((ss: WorkoutSession) => {
       const strength = ss.entries.filter((e): e is StrengthEntry => e.kind === 'strength');
       const c = ss.entries.find((e): e is CardioEntry => e.kind === 'cardio' && e.slotId === CARDIO_SLOT_ID);
@@ -280,7 +270,7 @@ export function useUi() {
         dayName: state.program.days.find((d) => d.id === ss.dayId)?.name ?? ss.dayId,
         sets: strength.reduce((n, e) => n + doneSets(e.sets).length, 0),
         volume: convertWeight(vol, ss.unit, unit),
-        prs: prCount.get(ss.id) ?? 0,
+        prs: new Set(sessionPRs(state, ss).map((p) => p.exerciseId)).size,
         cardio: c ? { kind: c.exerciseId, name: state.exercises[c.exerciseId]?.name, minutes: c.durationMin, done: c.done } : undefined,
         finisher: f ? { kind: f.exerciseId, name: state.exercises[f.exerciseId]?.name, minutes: f.durationMin, done: f.done } : undefined,
         durationMin: ss.finishedAt ? Math.round((Date.parse(ss.finishedAt) - Date.parse(ss.startedAt)) / 60000) : undefined,
@@ -336,6 +326,8 @@ export function useUi() {
 
     ...gateActions(() => core.getState().status !== 'ready', {
     start: () => { t.startSession(); },
+    discard: () => { w.discardSession(); },
+    deleteSession: (sessionId: string) => { core.deleteSession(sessionId); },
     updateSet: (slotId: string, setIdx: number, patch: { weight?: number; reps?: number }) => { w.logSet(idx(slotId), setIdx, patch); },
     setDone: async (slotId: string, setIdx: number, done: boolean, vals: { weight: number; reps: number }): Promise<PrHit[]> => {
       const entry = entryBySlot.get(slotId);
@@ -405,12 +397,13 @@ export function useUi() {
       });
       w.swapExercise(slotId, created.id, scope);
     },
-    finish: async (): Promise<SummaryVM> => {
+    finish: async (): Promise<SummaryVM | null> => {
       const sess = w.session!;
       const day = state.program.days.find((d) => d.id === sess.dayId);
       const names = new Map(w.entries.map((e) => [e.exercise.id, e.exercise.name]));
       const res = w.finishSession();
-      const fs = res?.session ?? sess;
+      if (!res) return null; // nothing done: core discarded it, rotation not advanced
+      const fs = res.session;
       const strength = fs.entries.filter((e): e is StrengthEntry => e.kind === 'strength');
       const c = fs.entries.find((e): e is CardioEntry => e.kind === 'cardio' && e.slotId === CARDIO_SLOT_ID);
       const f = fs.entries.find((e): e is CardioEntry => e.kind === 'cardio' && e.slotId === FINISHER_SLOT_ID);

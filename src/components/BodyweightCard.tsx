@@ -29,10 +29,10 @@ export function BodyweightCard({ bw, onLog }: { bw: BodyweightVM; onLog: (weight
       </div>
 
       <div className="bw-log">
-        <label style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <span className="lbl">Today ({bw.unit}){bw.today != null && <em> · logged {fmtNum(bw.today)}</em>}</span>
           <Stepper label="Bodyweight" suffix={bw.unit} value={val} step={step} min={20} max={1000} onChange={(v) => { setVal(v); setSaved(false); }} />
-        </label>
+        </div>
         <button className="btn btn-primary bw-save" data-testid="bw-save" onClick={() => { onLog(val); setSaved(true); }}>
           {saved ? 'Saved ✓' : bw.today != null ? 'Update' : 'Log'}
         </button>

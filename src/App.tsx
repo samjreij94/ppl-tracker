@@ -28,6 +28,8 @@ export default function App() {
   const [summary, setSummary] = useState<SummaryVM | null>(null);
   const [timers, setTimers] = useState<Record<CardioRole, CardioTimer>>(NO_TIMERS);
   const [confirmFinish, setConfirmFinish] = useState<number | null>(null);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [metric, setMetric] = useState<Metric>('e1rm');
   const [selectedEx, setSelectedEx] = useState<string | null>(null);
 
@@ -70,7 +72,15 @@ export default function App() {
     setRest(null);
     setTimers(NO_TIMERS);
     const s = await ui.finish();
+    if (!s) { setToast('Nothing logged, so the workout was discarded.'); return; }
     setSummary(s);
+  };
+  const discard = () => {
+    setConfirmDiscard(false);
+    setRest(null);
+    setTimers(NO_TIMERS);
+    ui.discard();
+    setToast('Workout discarded.');
   };
 
   const inWorkout = !!active && !summary;
@@ -105,7 +115,7 @@ export default function App() {
     screen = (
       <ProgressScreen unit={unit} history={ui.history} exercises={ui.loggedExercises} selectedId={selectedEx} series={series}
         metric={metric} onSelect={setSelectedEx} onMetric={setMetric} cardioMinutes={ui.cardioMinutes}
-        bodyweight={ui.bodyweight} onLogBodyweight={ui.logBodyweight} />
+        bodyweight={ui.bodyweight} onLogBodyweight={ui.logBodyweight} onDeleteSession={setConfirmDelete} />
     );
   } else if (tab === 'settings') {
     screen = <SettingsScreen settings={settings} onChange={ui.updateSettings} onExport={ui.exportFile} onImport={ui.importText}
@@ -129,6 +139,7 @@ export default function App() {
         onAddSet={(e) => ui.addSet(active.exercises[e].slotId)}
         onSwap={setSwapIdx}
         onFinish={requestFinish}
+        onDiscard={() => setConfirmDiscard(true)}
       />
     );
   } else {
@@ -152,6 +163,14 @@ export default function App() {
           onAddCustom={async (input, scope) => { await ui.addCustom(swapEx.slotId, input, scope); setSwapIdx(null); }} />
       )}
       {toast && <Celebration message={toast} onDone={clearToast} />}
+      {confirmDiscard && (
+        <ConfirmDialog title="Discard workout?" body="Nothing from this workout will be saved, and your rotation stays on this day." danger
+          confirmLabel="Discard" onCancel={() => setConfirmDiscard(false)} onConfirm={discard} />
+      )}
+      {confirmDelete != null && (
+        <ConfirmDialog title="Delete this workout?" body="It will be removed from your history and charts. This can't be undone." danger
+          confirmLabel="Delete" onCancel={() => setConfirmDelete(null)} onConfirm={() => { ui.deleteSession(confirmDelete); setConfirmDelete(null); setToast('Workout deleted.'); }} />
+      )}
       {confirmFinish != null && (
         <ConfirmDialog title="Finish workout?" body={`${confirmFinish} set${confirmFinish === 1 ? '' : 's'} not marked done. Only completed sets are saved to history.`}
           confirmLabel="Finish" onCancel={() => setConfirmFinish(null)} onConfirm={() => void finish()} />

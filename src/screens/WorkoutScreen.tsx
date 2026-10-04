@@ -28,6 +28,7 @@ interface Props {
   onAddSet: (exIdx: number) => void;
   onSwap: (exIdx: number) => void;
   onFinish: () => void;
+  onDiscard: () => void;
 }
 
 export function WorkoutScreen(p: Props) {
@@ -71,6 +72,10 @@ export function WorkoutScreen(p: Props) {
             ? <button type="button" className="btn btn-ghost finisher-quiet" data-testid="add-finisher" onClick={p.onAddFinisher}>+ Add optional cardio finisher</button>
             : <FinisherOffer offer={p.finisherOffer} onAdd={p.onAddFinisher} />
         ) : null}
+      </div>
+
+      <div style={{ marginTop: 18, textAlign: 'center' }}>
+        <button type="button" className="btn btn-ghost btn-discard" data-testid="discard-workout" onClick={p.onDiscard}>Discard workout</button>
       </div>
 
       <div className="footer-bar">
