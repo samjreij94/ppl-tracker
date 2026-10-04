@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { LineChart } from '../components/LineChart';
 import { BodyweightCard } from '../components/BodyweightCard';
 import { IconTrophy } from '../components/Icons';
-import { cardioLabel, fmtNum, fmtVolume, type BodyweightVM, type HistoryItem, type Metric, type SeriesPoint, type Unit } from '../ui/types';
+import { cardioLabel, fmtNum, fmtVolume, plural, type BodyweightVM, type HistoryItem, type Metric, type SeriesPoint, type Unit } from '../ui/types';
 
 interface Props {
   unit: Unit;
@@ -79,12 +79,12 @@ export function ProgressScreen({ unit, history, exercises, selectedId, series, m
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="d">{h.dayName} <span className="dim" style={{ fontWeight: 500 }}>· {new Date(h.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</span></div>
                 <div className="dim num" style={{ fontSize: 14 }}>
-                  {h.sets} sets · {fmtVolume(h.volume)} {unit}
+                  {plural(h.sets, 'set')} · {fmtVolume(h.volume)} {unit}
                   {h.cardio ? ` · ${cardioLabel(h.cardio.kind, h.cardio.name)} ${h.cardio.minutes}m` : ''}
                   {h.finisher?.done ? ` + ${h.finisher.minutes}m finisher` : ''}
                 </div>
               </div>
-              {h.prs > 0 && <span className="pill pill-pr"><IconTrophy width={14} height={14} />{h.prs}</span>}
+              {h.prs > 0 && <span className="pill pill-pr" data-testid="history-prs" aria-label={plural(h.prs, 'PR')} title={plural(h.prs, 'PR')}><IconTrophy width={14} height={14} aria-hidden="true" />{h.prs}</span>}
               {onDeleteSession && (
                 <button type="button" className="hist-del" data-testid="delete-session" aria-label={`Delete ${h.dayName} workout`} onClick={() => onDeleteSession(h.id)}>×</button>
               )}

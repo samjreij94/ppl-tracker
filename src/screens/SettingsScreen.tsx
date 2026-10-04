@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Stepper } from '../components/Stepper';
-import { EXPERIENCE_INFO, GOAL_INFO, type DeloadVM, type Experience, type GoalKind, type ProfileVM, type SettingsVM } from '../ui/types';
+import { EXPERIENCE_INFO, GOAL_INFO, plural, type DeloadVM, type Experience, type GoalKind, type ProfileVM, type SettingsVM } from '../ui/types';
 
 interface Props {
   settings: SettingsVM;
@@ -102,7 +102,7 @@ export function SettingsScreen({ settings, onChange, onExport, onImport, deload,
           <h2 className="section">Training</h2>
           <div className="card" style={{ padding: '4px 16px' }} data-testid="settings-deload">
             <div className="setting">
-              <div className="k">Deload week<div className="dim num" style={{ fontSize: 13, fontWeight: 400 }}>{deload.daysLeft != null ? `${deload.daysLeft} day${deload.daysLeft === 1 ? '' : 's'} left` : 'in progress'}</div></div>
+              <div className="k">Deload week<div className="dim num" style={{ fontSize: 13, fontWeight: 400 }}>{deload.daysLeft != null ? `${plural(deload.daysLeft, 'day')} left` : 'in progress'}</div></div>
               <button className="btn btn-ghost" onClick={onEndDeload} data-testid="end-deload">End deload</button>
             </div>
           </div>

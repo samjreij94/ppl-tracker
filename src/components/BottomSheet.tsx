@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from 'react';
 
-export function BottomSheet({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
+/** Modal bottom sheet: the body scrolls; an optional `footer` (actions) stays pinned at the bottom, above the safe area. */
+export function BottomSheet({ open, onClose, title, children, footer }: { open: boolean; onClose: () => void; title: string; children: ReactNode; footer?: ReactNode }) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -15,7 +16,8 @@ export function BottomSheet({ open, onClose, title, children }: { open: boolean;
       <div className="sheet-backdrop" onClick={onClose} />
       <div className="sheet" role="dialog" aria-modal="true" aria-label={title}>
         <div className="grabber" />
-        {children}
+        <div className="sheet-body" data-testid="sheet-body">{children}</div>
+        {footer && <div className="sheet-foot" data-testid="sheet-foot">{footer}</div>}
       </div>
     </>
   );

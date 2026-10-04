@@ -32,7 +32,12 @@ export function SwapSheet({ open, currentName, options, onClose, onSwap, onAddCu
   };
 
   return (
-    <BottomSheet open={open} onClose={onClose} title={`Swap ${currentName}`}>
+    <BottomSheet open={open} onClose={onClose} title={`Swap ${currentName}`} footer={
+      <div className="grid2">
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn btn-primary" disabled={!canApply} onClick={apply}>{custom ? 'Add & swap' : 'Swap'}</button>
+      </div>
+    }>
       <h3>Swap exercise</h3>
       <div className="dim" style={{ marginBottom: 12 }}>Replacing <b style={{ color: 'var(--text)' }}>{currentName}</b></div>
 
@@ -73,11 +78,6 @@ export function SwapSheet({ open, currentName, options, onClose, onSwap, onAddCu
           <button type="button" className="btn btn-ghost" style={{ width: '100%', marginTop: 8 }} onClick={() => setCustom(false)}>Back to alternatives</button>
         </form>
       )}
-
-      <div className="grid2" style={{ marginTop: 14 }}>
-        <button className="btn" onClick={onClose}>Cancel</button>
-        <button className="btn btn-primary" disabled={!canApply} onClick={apply}>{custom ? 'Add & swap' : 'Swap'}</button>
-      </div>
     </BottomSheet>
   );
 }

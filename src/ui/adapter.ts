@@ -3,7 +3,7 @@
  * UI view-models in ./types. No business logic lives here — only shape mapping and display
  * formatting. Anything core doesn't provide yet is marked `TODO(core)`.
  */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   CARDIO_SLOT_ID,
   FINISHER_SLOT_ID,
@@ -41,7 +41,7 @@ import {
   type Unit,
   type WorkoutSession,
 } from '../core';
-import { fmtNum, type ActiveVM, type BodyweightVM, type CardioVM, type DeloadVM, type Experience, type FinisherOfferVM, GOAL_INFO, isGoalKind, type GoalKind, type OnboardingInput, type ProfileVM, type ExerciseVM, type HistoryItem, type LastSet, type PrHit, type SeriesPoint, type SettingsVM, type SummaryVM, type SwapOption, type TodayVM } from './types';
+import { fmtNum, type ActiveVM, type BodyweightVM, type CardioVM, type DeloadVM, type Experience, type FinisherOfferVM, GOAL_INFO, isGoalKind, type GoalKind, type OnboardingInput, type ProfileVM, type ExerciseVM, type HistoryItem, type LastSet, plural, type PrHit, type SeriesPoint, type SettingsVM, type SummaryVM, type SwapOption, type TodayVM } from './types';
 
 /* ---------- formatting ---------- */
 const repsText = (r: RepRange) => (r.min === r.max ? `${r.min}` : `${r.min}–${r.max}`);
@@ -64,7 +64,7 @@ export function hintText(p: ProgressionHint | null | undefined, unit: Unit): str
   if (!p) return undefined;
   switch (p.action) {
     case 'increase': return p.newWeight != null ? `Hit all reps last time — try ${fmtNum(p.newWeight)} ${unit}` : cap(p.message);
-    case 'addReps': return p.targetReps != null && p.newWeight != null ? `Stay at ${fmtNum(p.newWeight)} ${unit}, aim for ${p.targetReps} reps` : cap(p.message);
+    case 'addReps': return p.targetReps != null && p.newWeight != null ? `Stay at ${fmtNum(p.newWeight)} ${unit}, aim for ${plural(p.targetReps, 'rep')}` : cap(p.message);
     case 'deload': return cap(p.message); // core's ready-made "deload week: 2 × 5 at 120 lb, stop at RIR 3-4"
     default: return cap(p.message);
   }
@@ -93,9 +93,14 @@ const shortEffort = (note?: string) => {
 export function prText(pr: PRResult, unit: Unit): string {
   if (pr.kind === 'topSet') return `Heaviest set: ${fmtNum(pr.weight)} ${unit} × ${pr.reps}`;
   if (pr.kind === 'e1rm') return `e1RM ${fmtNum(Math.round(pr.value))} ${unit} (${fmtNum(pr.weight)}×${pr.reps})`;
-  return `Rep PR: ${pr.reps} reps @ ${fmtNum(pr.weight)} ${unit}`;
+  return `Rep PR: ${plural(pr.reps, 'rep')} @ ${fmtNum(pr.weight)} ${unit}`;
 }
 const bestPr = (prs: PRResult[]) => [...prs].sort((a, b) => PR_ORDER.indexOf(a.kind) - PR_ORDER.indexOf(b.kind))[0];
+const prKinds = (prs: PRResult[]) => [...new Set([...prs].sort((a, b) => PR_ORDER.indexOf(a.kind) - PR_ORDER.indexOf(b.kind)).map((p) => PR_LABEL[p.kind]))];
+
+/** Live per-set PR marks: the core's `logSet` result for a set, remembered with the values it was hit at. */
+type SetPrMark = { weight: number; reps: number; kinds: string[] };
+const prKey = (sessionId: string, slotId: string, exerciseId: string, setIdx: number) => `${sessionId}|${slotId}|${exerciseId}|${setIdx}`;
 
 /* ---------- ready gate ----------
  * Core loads IndexedDB asynchronously; anything written while status is 'loading' would be
@@ -131,6 +136,8 @@ export function useUi() {
   const dt = useDataTransfer();
   const bwh = useBodyweight();
   const dl = useDeload();
+  // Per-set PR hits returned by core `logSet` during the active session (UI display state only).
+  const [prMarks, setPrMarks] = useState<ReadonlyMap<string, SetPrMark>>(() => new Map());
 
   /* ---------- profile / onboarding ----------
    * TODO(core): Dealer is adding `settings.profile {name, experience}`, `settings.onboardedAt` and
@@ -200,6 +207,7 @@ export function useUi() {
     const sess = w.session;
     if (!sess) return null;
     const day = state.program.days.find((d) => d.id === sess.dayId);
+    const canonPr = prMarks.size ? new Set(sessionPRs(state, sess).map((p) => p.exerciseId)) : null;
     const cardioVM = (role: CardioRole): CardioVM | null => {
       const v = w.entries.find((e) => e.entry.kind === 'cardio' && (e.entry.role ?? 'warmup') === role);
       if (!v) return null;
@@ -226,6 +234,13 @@ export function useUi() {
       finisherOffer: w.hasFinisher ? null : finisherOffer,
       exercises: w.entries.filter((e) => e.entry.kind === 'strength').map((e: ActiveEntryView): ExerciseVM => {
         const se = e.entry as StrengthEntry;
+        // A mark only shows while the set is still done with the values it was hit at, and only for
+        // exercises in the canonical session PR list (same source as the summary + history trophy).
+        const markFor = (st: SetLog, i: number) => {
+          if (!canonPr?.has(se.exerciseId) || !st.done) return undefined;
+          const m = prMarks.get(prKey(sess.id, se.slotId, se.exerciseId, i));
+          return m && m.weight === st.weight && m.reps === st.reps ? m : undefined;
+        };
         return {
           slotId: se.slotId,
           exerciseId: se.exerciseId,
@@ -238,11 +253,14 @@ export function useUi() {
           ...hintKind(e.progression),
           swapped: e.swapped,
           restSec: se.restSec,
-          sets: se.sets.map((st) => ({ weight: st.weight, reps: st.reps, done: st.done })),
+          sets: se.sets.map((st, i) => {
+            const m = markFor(st, i);
+            return { weight: st.weight, reps: st.reps, done: st.done, ...(m && { pr: true, prKinds: m.kinds }) };
+          }),
         };
       }),
     };
-  }, [w.session, w.entries, w.unit, w.finisher, w.hasFinisher, state, effort, finisherOffer]);
+  }, [w.session, w.entries, w.unit, w.finisher, w.hasFinisher, state, effort, finisherOffer, prMarks]);
 
   const idx = (slotId: string) => {
     const e = entryBySlot.get(slotId);
@@ -326,15 +344,25 @@ export function useUi() {
 
     ...gateActions(() => core.getState().status !== 'ready', {
     start: () => { t.startSession(); },
-    discard: () => { w.discardSession(); },
+    discard: () => { w.discardSession(); setPrMarks(new Map()); },
     deleteSession: (sessionId: string) => { core.deleteSession(sessionId); },
     updateSet: (slotId: string, setIdx: number, patch: { weight?: number; reps?: number }) => { w.logSet(idx(slotId), setIdx, patch); },
     setDone: async (slotId: string, setIdx: number, done: boolean, vals: { weight: number; reps: number }): Promise<PrHit[]> => {
       const entry = entryBySlot.get(slotId);
+      const sessionId = w.session?.id;
       const res = w.logSet(idx(slotId), setIdx, { ...vals, done });
+      const kinds = prKinds(res.prs);
+      if (sessionId && entry) {
+        const key = prKey(sessionId, slotId, entry.entry.exerciseId, setIdx);
+        setPrMarks((m) => {
+          if (!kinds.length && !m.has(key)) return m;
+          const next = new Map(m);
+          if (kinds.length) next.set(key, { weight: vals.weight, reps: vals.reps, kinds }); else next.delete(key);
+          return next;
+        });
+      }
       if (!res.prs.length) return [];
       const top = bestPr(res.prs);
-      const kinds = [...new Set([...res.prs].sort((a, b) => PR_ORDER.indexOf(a.kind) - PR_ORDER.indexOf(b.kind)).map((p) => PR_LABEL[p.kind]))];
       return [{ name: entry?.exercise.name ?? '', kinds, text: `${fmtNum(top.weight)} ${w.unit} × ${top.reps}` }];
     },
     addSet: (slotId: string) => { w.addSet(idx(slotId)); },
@@ -402,14 +430,17 @@ export function useUi() {
       const day = state.program.days.find((d) => d.id === sess.dayId);
       const names = new Map(w.entries.map((e) => [e.exercise.id, e.exercise.name]));
       const res = w.finishSession();
+      setPrMarks(new Map());
       if (!res) return null; // nothing done: core discarded it, rotation not advanced
       const fs = res.session;
+      // Canonical session PRs: the same list the history trophy counts (distinct exercises).
+      const canon = sessionPRs(core.getState(), fs.id);
       const strength = fs.entries.filter((e): e is StrengthEntry => e.kind === 'strength');
       const c = fs.entries.find((e): e is CardioEntry => e.kind === 'cardio' && e.slotId === CARDIO_SLOT_ID);
       const f = fs.entries.find((e): e is CardioEntry => e.kind === 'cardio' && e.slotId === FINISHER_SLOT_ID);
       // one line per exercise: its most notable record
       const byEx = new Map<string, PRResult[]>();
-      (res?.prs ?? []).forEach((p) => byEx.set(p.exerciseId, [...(byEx.get(p.exerciseId) ?? []), p]));
+      canon.forEach((p) => byEx.set(p.exerciseId, [...(byEx.get(p.exerciseId) ?? []), p]));
       return {
         dayName: day?.name ?? fs.dayId,
         durationMin: Math.max(1, Math.round(((fs.finishedAt ? Date.parse(fs.finishedAt) : Date.now()) - Date.parse(fs.startedAt)) / 60000)),

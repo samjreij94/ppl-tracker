@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Stepper } from './Stepper';
 import { IconCheck, IconSwap, IconTrophy } from './Icons';
-import { fmtNum, fmtSet, weightStep, type ExerciseVM, type SetVM, type Unit } from '../ui/types';
+import { fmtNum, fmtSet, plural, weightStep, type ExerciseVM, type SetVM, type Unit } from '../ui/types';
 
 interface Props {
   ex: ExerciseVM;
@@ -42,11 +42,11 @@ export function ExerciseLog({ ex, unit, prSetIndex, onSetChange, onToggleDone, o
             <div key={i} className={`set-row${s.done ? ' done' : ''}${isActive ? ' active' : ''}${isPr ? ' pr' : ''}`} data-testid="set-row">
               <div className="set-line">
                 <span className="idx num" aria-hidden="true">{i + 1}</span>
-                <button className="set-summary num" onClick={() => setActive(isActive ? -1 : i)} aria-expanded={isActive} aria-label={`Set ${i + 1}: ${fmtNum(s.weight)} ${unit} for ${s.reps} reps. Tap to edit`}>
+                <button className="set-summary num" onClick={() => setActive(isActive ? -1 : i)} aria-expanded={isActive} aria-label={`Set ${i + 1}: ${fmtNum(s.weight)} ${unit} for ${plural(s.reps, 'rep')}${s.pr ? ', personal record' : ''}. Tap to edit`}>
                   <span className="w">{fmtNum(s.weight)}</span><span className="u">{unit}</span>
                   <span className="x">×</span>
                   <span className="r">{s.reps}</span>
-                  {s.pr && <span className="pill pill-pr" style={{ marginLeft: 'auto' }}><IconTrophy width={14} height={14} />PR</span>}
+                  {s.pr && <span className="pill pill-pr set-pr" data-testid="set-pr" title={s.prKinds?.join(' + ')}><IconTrophy width={14} height={14} aria-hidden="true" />PR</span>}
                 </button>
                 <button className="done-btn" aria-pressed={s.done} aria-label={s.done ? `Undo set ${i + 1}` : `Mark set ${i + 1} done`} onClick={() => onToggleDone(i)}>
                   <IconCheck />

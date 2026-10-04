@@ -1,5 +1,5 @@
 import { IconTrophy } from '../components/Icons';
-import { cardioLabel, fmtVolume, type SummaryVM, type Unit } from '../ui/types';
+import { cardioLabel, fmtVolume, plural, pluralWord, type SummaryVM, type Unit } from '../ui/types';
 
 export function SummaryScreen({ summary, unit, onDone }: { summary: SummaryVM; unit: Unit; onDone: () => void }) {
   return (
@@ -9,18 +9,18 @@ export function SummaryScreen({ summary, unit, onDone }: { summary: SummaryVM; u
         <h1>{summary.dayName} ✓</h1>
       </header>
       <div className="summary-big">
-        <div className="stat"><div className="v num">{summary.durationMin}</div><div className="k">minutes</div></div>
-        <div className="stat"><div className="v num">{summary.setsDone}</div><div className="k">sets</div></div>
+        <div className="stat"><div className="v num">{summary.durationMin}</div><div className="k">{pluralWord(summary.durationMin, 'minute')}</div></div>
+        <div className="stat"><div className="v num">{summary.setsDone}</div><div className="k">{pluralWord(summary.setsDone, 'set')}</div></div>
         <div className="stat"><div className="v num">{fmtVolume(summary.volume)}</div><div className="k">{unit} volume</div></div>
       </div>
       {summary.cardio && (
         <div className="card" style={{ marginTop: 12 }}>
           <div className="eyebrow">Cardio</div>
-          <div style={{ fontWeight: 700 }}>Warm-up: {cardioLabel(summary.cardio.kind, summary.cardio.name)} · {summary.cardio.minutes} min {summary.cardio.done ? '✓' : '(skipped)'}</div>
-          {summary.finisher && <div style={{ fontWeight: 700, marginTop: 4 }}>Finisher: {cardioLabel(summary.finisher.kind, summary.finisher.name)} · {summary.finisher.minutes} min {summary.finisher.done ? '✓' : '(not done)'}</div>}
+          <div className="sum-cardio" data-testid="summary-warmup">Warm-up: {cardioLabel(summary.cardio.kind, summary.cardio.name)} · <span className="nowrap">{summary.cardio.minutes} min {summary.cardio.done ? '✓' : '(skipped)'}</span></div>
+          {summary.finisher && <div className="sum-cardio" style={{ marginTop: 4 }} data-testid="summary-finisher">Finisher: {cardioLabel(summary.finisher.kind, summary.finisher.name)} · <span className="nowrap">{summary.finisher.minutes} min {summary.finisher.done ? '✓' : '(not done)'}</span></div>}
         </div>
       )}
-      <h2 className="section">Personal records</h2>
+      <h2 className="section">Personal records{summary.prs.length > 0 && <span className="dim" data-testid="summary-pr-count" style={{ fontWeight: 500 }}> · {plural(summary.prs.length, 'exercise')}</span>}</h2>
       {summary.prs.length === 0 ? <div className="card dim">No new PRs this time. Consistency wins.</div> : (
         <div className="stack">
           {summary.prs.map((pr, i) => (

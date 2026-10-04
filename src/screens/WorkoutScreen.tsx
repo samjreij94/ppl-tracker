@@ -1,7 +1,7 @@
 import { CardioCard, type CardioTimer } from '../components/CardioCard';
 import { ExerciseLog } from '../components/ExerciseLog';
 import { FinisherOffer } from '../components/FinisherOffer';
-import type { CardioVM, ExerciseVM, FinisherOfferVM, SetVM, Unit } from '../ui/types';
+import { plural, type CardioVM, type ExerciseVM, type FinisherOfferVM, type SetVM, type Unit } from '../ui/types';
 
 export type CardioRole = 'warmup' | 'finisher';
 
@@ -39,7 +39,7 @@ export function WorkoutScreen(p: Props) {
       <header className="screen-header">
         <div className="eyebrow">In progress{p.deload ? ' · deload week' : ''}</div>
         <h1>{p.dayName}</h1>
-        <div className="sub num">{done}/{total} sets{p.cardio ? ` · warm-up ${p.cardio.done ? '✓' : 'pending'}` : ''}{p.finisher ? ` · finisher ${p.finisher.done ? '✓' : 'pending'}` : ''}</div>
+        <div className="sub num">{done}/{plural(total, 'set')}{p.cardio ? ` · warm-up ${p.cardio.done ? '✓' : 'pending'}` : ''}{p.finisher ? ` · finisher ${p.finisher.done ? '✓' : 'pending'}` : ''}</div>
         <div className="progress-track" aria-hidden="true"><div style={{ transform: `scaleX(${total ? done / total : 0})` }} /></div>
       </header>
 

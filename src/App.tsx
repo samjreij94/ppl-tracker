@@ -12,7 +12,7 @@ import { ProgressScreen } from './screens/ProgressScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { OnboardingScreen } from './screens/OnboardingScreen';
 import { useUi } from './ui/adapter';
-import type { Metric, SummaryVM } from './ui/types';
+import { plural, type Metric, type SummaryVM } from './ui/types';
 import './ui/styles/app.css';
 
 const NO_TIMER: CardioTimer = { endsAt: null, pausedLeftSec: null };
@@ -172,7 +172,7 @@ export default function App() {
           confirmLabel="Delete" onCancel={() => setConfirmDelete(null)} onConfirm={() => { ui.deleteSession(confirmDelete); setConfirmDelete(null); setToast('Workout deleted.'); }} />
       )}
       {confirmFinish != null && (
-        <ConfirmDialog title="Finish workout?" body={`${confirmFinish} set${confirmFinish === 1 ? '' : 's'} not marked done. Only completed sets are saved to history.`}
+        <ConfirmDialog title="Finish workout?" body={`${plural(confirmFinish, 'set')} not marked done. Only completed sets are saved to history.`}
           confirmLabel="Finish" onCancel={() => setConfirmFinish(null)} onConfirm={() => void finish()} />
       )}
     </div>

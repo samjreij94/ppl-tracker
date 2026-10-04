@@ -100,7 +100,10 @@ export interface SetVM {
   weight: number;
   reps: number;
   done: boolean;
+  /** This set broke a record when it was marked done (core `logSet` result); cleared if undone or edited. */
   pr?: boolean;
+  /** Record kinds this set broke, best first ("Heaviest set", "e1RM", "Rep PR"). */
+  prKinds?: string[];
 }
 
 export interface LastSet { weight: number; reps: number }
@@ -200,3 +203,6 @@ export const weightStep = (u: Unit) => (u === 'kg' ? 2.5 : 5);
 export const fmtSet = (s: LastSet) => `${fmtNum(s.weight)}×${s.reps}`;
 export const fmtNum = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 export const fmtVolume = (n: number) => (n >= 10000 ? `${(n / 1000).toFixed(1)}k` : Math.round(n).toLocaleString());
+/** "1 set", "3 sets", "1 rep". Irregular plurals via `many` (e.g. plural(n, 'person', 'people')). */
+export const pluralWord = (n: number, one: string, many = `${one}s`) => (n === 1 ? one : many);
+export const plural = (n: number, one: string, many?: string) => `${n} ${pluralWord(n, one, many)}`;

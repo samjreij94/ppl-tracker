@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { cardioSummary } from '../components/CardioCard';
 import { ConfirmDialog } from '../components/ConfirmDialog';
-import { cardioLabel, fmtNum, fmtSet, type TodayVM, type Unit } from '../ui/types';
+import { cardioLabel, fmtNum, fmtSet, plural, type TodayVM, type Unit } from '../ui/types';
 
 interface Props {
   today: TodayVM | null;
@@ -30,10 +30,10 @@ export function TodayScreen({ today, unit, resuming, bodyweightToday, onStart, o
         {name && <div className="greeting" data-testid="greeting">{greet(new Date().getHours())}, {name}</div>}
         <div className="eyebrow">{today.dayLabel ?? 'Next up'}</div>
         <h1>{today.dayName}</h1>
-        <div className="sub num">{today.exercises.length} exercises · {setCount} sets · cardio warm-up</div>
+        <div className="sub num">{plural(today.exercises.length, 'exercise')} · {plural(setCount, 'set')} · cardio warm-up</div>
         {dl?.active && (
           <div className="pill pill-deload num" data-testid="deload-badge">
-            Deload week{dl.daysLeft != null ? ` · ${dl.daysLeft} day${dl.daysLeft === 1 ? '' : 's'} left` : ''}
+            Deload week{dl.daysLeft != null ? ` · ${plural(dl.daysLeft, 'day')} left` : ''}
           </div>
         )}
       </header>
