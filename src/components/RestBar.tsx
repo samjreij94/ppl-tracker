@@ -1,17 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
+import { useCountdown } from '../ui/useCountdown';
 
 export interface RestState { endsAt: number; total: number }
 
 /** Sticky countdown bar above the tab bar. Uses an absolute end timestamp so it survives backgrounding. */
 export function RestBar({ rest, onAdd, onSkip, onFinished }: { rest: RestState; onAdd: (s: number) => void; onSkip: () => void; onFinished: () => void }) {
-  const [now, setNow] = useState(Date.now());
   const fired = useRef(false);
   useEffect(() => { fired.current = false; }, [rest.endsAt]);
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 250);
-    return () => clearInterval(id);
-  }, []);
-  const left = Math.max(0, Math.ceil((rest.endsAt - now) / 1000));
+  const left = useCountdown(rest.endsAt);
   useEffect(() => {
     if (left === 0 && !fired.current) {
       fired.current = true;
@@ -20,11 +16,13 @@ export function RestBar({ rest, onAdd, onSkip, onFinished }: { rest: RestState; 
       onFinished();
     }
   }, [left, onFinished]);
-  const pct = rest.total > 0 ? Math.min(100, (left / rest.total) * 100) : 0;
+  // Compositor-only progress: scaleX steps once per second and a 1s linear transform transition
+  // interpolates between steps (smooth at 120 Hz, no layout). Reduced motion → plain steps.
+  const frac = rest.total > 0 ? Math.min(1, Math.max(0, (left - 1) / rest.total)) : 0;
   const mm = Math.floor(left / 60), ss = String(left % 60).padStart(2, '0');
   return (
     <div className={left === 0 ? 'restbar finished' : 'restbar'} role="timer" aria-live="off" aria-label="Rest timer" data-testid="restbar">
-      <div className="fill" style={{ width: `${pct}%` }} />
+      <div className="fill" style={{ transform: `scaleX(${left === 0 ? 0 : frac})` }} />
       <div style={{ position: 'relative' }}>
         <div className="label">{left === 0 ? 'Rest done — go!' : 'Rest'}</div>
         <div className="time num">{mm}:{ss}</div>

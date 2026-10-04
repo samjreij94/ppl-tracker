@@ -36,7 +36,7 @@ export function WorkoutScreen(p: Props) {
         <div className="eyebrow">In progress</div>
         <h1>{p.dayName}</h1>
         <div className="sub num">{done}/{total} sets{p.cardio ? ` · warm-up ${p.cardio.done ? '✓' : 'pending'}` : ''}{p.finisher ? ` · finisher ${p.finisher.done ? '✓' : 'pending'}` : ''}</div>
-        <div className="progress-track" aria-hidden="true"><div style={{ width: `${total ? (done / total) * 100 : 0}%` }} /></div>
+        <div className="progress-track" aria-hidden="true"><div style={{ transform: `scaleX(${total ? done / total : 0})` }} /></div>
       </header>
 
       {p.cardio && (

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Stepper } from './Stepper';
+import { useCountdown } from '../ui/useCountdown';
 import { IconCheck } from './Icons';
 import { cardioLabel, fmtNum, type CardioKind, type CardioVM, type Unit } from '../ui/types';
 
@@ -43,18 +44,13 @@ export function CardioCard({ cardio, unit, timer, onTimer, onChange, onToggleDon
   const isFinisher = cardio.role === 'finisher';
   const title = isFinisher ? 'Cardio finisher · zone 2' : 'Cardio warm-up';
   const [expanded, setExpanded] = useState(!cardio.done);
-  const [now, setNow] = useState(Date.now());
   const fired = useRef(false);
   useEffect(() => { if (cardio.done) setExpanded(false); }, [cardio.done]);
-  useEffect(() => {
-    if (!timer.endsAt) return;
-    fired.current = false;
-    const id = setInterval(() => setNow(Date.now()), 250);
-    return () => clearInterval(id);
-  }, [timer.endsAt]);
+  useEffect(() => { fired.current = false; }, [timer.endsAt]);
+  const counted = useCountdown(timer.endsAt);
 
   const running = timer.endsAt != null;
-  const leftSec = running ? Math.max(0, Math.ceil((timer.endsAt! - now) / 1000)) : timer.pausedLeftSec ?? cardio.minutes * 60;
+  const leftSec = running ? counted : timer.pausedLeftSec ?? cardio.minutes * 60;
   useEffect(() => {
     if (running && leftSec === 0 && !fired.current) {
       fired.current = true;

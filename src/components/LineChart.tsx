@@ -1,7 +1,13 @@
-/** Hand-rolled responsive SVG line chart (zero deps). */
+/**
+ * Hand-rolled responsive SVG line chart (zero deps). The viewBox tracks the rendered CSS width
+ * (ResizeObserver), so 1 SVG unit = 1 CSS px: labels render at their true size and strokes stay
+ * hairline-exact at any DPR (3x on iPhone Pro); `vector-effect: non-scaling-stroke` guards against
+ * any residual scaling.
+ */
+import { useLayoutEffect, useRef, useState } from 'react';
 export interface Point { x: number; y: number }
 
-const W = 340, H = 200, PL = 40, PR = 12, PT = 12, PB = 26;
+const DEFAULT_W = 340, PL = 42, PR = 12, PT = 12, PB = 28;
 
 function niceTicks(min: number, max: number, count = 4): number[] {
   if (min === max) { min -= 1; max += 1; }
@@ -22,8 +28,26 @@ const fmtVal = (v: number) => (Math.abs(v) >= 10000 ? `${Math.round(v / 1000)}k`
  * `points` = the series. If `trend` is given (e.g. 7-day average), raw points render as faint dots
  * and the trend renders as the main line.
  */
+function useWidth() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [w, setW] = useState(DEFAULT_W);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const read = () => { const cw = Math.round(el.clientWidth); if (cw > 0) setW(cw); };
+    read();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, w] as const;
+}
+
 export function LineChart({ points, label, trend, empty }: { points: Point[]; label: string; trend?: Point[]; empty?: string }) {
-  if (points.length === 0) return <div className="empty">{empty ?? 'No data yet. Log this exercise to see a trend.'}</div>;
+  const [ref, W] = useWidth();
+  const H = Math.round(Math.min(240, Math.max(180, W * 0.56)));
+  if (points.length === 0) return <div className="empty" ref={ref}>{empty ?? 'No data yet. Log this exercise to see a trend.'}</div>;
   const all = trend ? [...points, ...trend] : points;
   const xs = all.map((p) => p.x), ys = all.map((p) => p.y);
   const ticks = niceTicks(Math.min(...ys), Math.max(...ys));
@@ -36,22 +60,22 @@ export function LineChart({ points, label, trend, empty }: { points: Point[]; la
   const area = `${d}L${sx(main[main.length - 1].x).toFixed(1)},${H - PB}L${sx(main[0].x).toFixed(1)},${H - PB}Z`;
   const xLabels = points.length === 1 ? [points[0].x] : [x0, x0 + (x1 - x0) / 2, x1];
   return (
-    <div className="chart">
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={label}>
+    <div className="chart" ref={ref}>
+      <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} role="img" aria-label={label}>
         {ticks.map((t) => (
           <g key={t}>
-            <line className="axis" x1={PL} x2={W - PR} y1={sy(t)} y2={sy(t)} strokeDasharray="2 4" />
-            <text className="lbl" x={PL - 6} y={sy(t) + 4} textAnchor="end">{fmtVal(t)}</text>
+            <line className="axis" x1={PL} x2={W - PR} y1={Math.round(sy(t)) + 0.5} y2={Math.round(sy(t)) + 0.5} strokeDasharray="2 4" shapeRendering="crispEdges" />
+            <text className="lbl" x={PL - 8} y={sy(t) + 4} textAnchor="end">{fmtVal(t)}</text>
           </g>
         ))}
         {xLabels.map((x, i) => (
           <text key={i} className="lbl" x={sx(x)} y={H - 6} textAnchor={points.length === 1 ? 'middle' : i === 0 ? 'start' : i === 2 ? 'end' : 'middle'}>{fmtDate(x)}</text>
         ))}
         <path className="area" d={area} />
-        <path className="line" d={d} />
+        <path className="line" d={d} shapeRendering="geometricPrecision" />
         {trend
-          ? points.map((p, i) => <circle key={i} className="dot raw" cx={sx(p.x)} cy={sy(p.y)} r={2.5} />)
-          : points.map((p, i) => <circle key={i} className={i === points.length - 1 ? 'dot last' : 'dot'} cx={sx(p.x)} cy={sy(p.y)} r={3.5} />)}
+          ? points.map((p, i) => <circle key={i} className="dot raw" cx={sx(p.x)} cy={sy(p.y)} r={3} />)
+          : points.map((p, i) => <circle key={i} className={i === points.length - 1 ? 'dot last' : 'dot'} cx={sx(p.x)} cy={sy(p.y)} r={4} />)}
       </svg>
     </div>
   );
