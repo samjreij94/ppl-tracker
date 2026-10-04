@@ -54,6 +54,7 @@ describe('deload UI', () => {
   it('uses core prescriptions for warm-up and finisher text', async () => {
     const core = createCore({ storage: createMemoryStorage(), seed: getBundledSeed() });
     await core.init();
+    core.completeOnboarding({ name: 'T', goal: 'fat-loss', experience: 'beginner', unit: 'lb', schedule: 6 });
     render(<CoreProvider core={core}><App /></CoreProvider>);
     const fin = await screen.findByTestId('today-finisher-rx');
     expect(fin.textContent).toMatch(/zone 2/i);

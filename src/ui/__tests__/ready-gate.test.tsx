@@ -74,7 +74,8 @@ describe('UI ready gate', () => {
     const mem = createMemoryStorage();
     const seed = getBundledSeed();
     const c1 = createCore({ storage: mem, seed });
-    void c1.init();
+    await c1.init();
+    c1.completeOnboarding({ name: 'T', goal: 'fat-loss', experience: 'beginner', unit: 'lb', schedule: 6 });
     const first = render(<App />, { wrapper: wrap(c1) });
     fireEvent.click(await screen.findByTestId('start'));
     fireEvent.click((await screen.findAllByRole('button', { name: 'Increase Weight' }))[0]);
