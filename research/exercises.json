@@ -1,0 +1,1829 @@
+{
+  "version": 1,
+  "units": {
+    "default": "lb"
+  },
+  "progressionCategories": {
+    "barbell_lower": {
+      "incrementLb": 5,
+      "incrementKg": 2.5,
+      "note": "Squats, deadlifts, RDLs, hip thrusts, barbell lunges. +5 lb / +2.5 kg total bar load per increase."
+    },
+    "barbell_upper": {
+      "incrementLb": 5,
+      "incrementKg": 2.5,
+      "note": "Bench, overhead press, rows, barbell/EZ-bar curls and extensions. +5 lb / +2.5 kg total; if microplates are available, +2.5 lb / +1.25 kg is fine (especially overhead press and arm work)."
+    },
+    "dumbbell": {
+      "incrementLb": 5,
+      "incrementKg": 2.5,
+      "note": "Load is logged per dumbbell (the weight of one dumbbell). Move to the next dumbbell: +5 lb per dumbbell, or the next kg dumbbell (usually +2-2.5 kg). If the jump is too big to hit repMin, stay and add reps beyond repMax first."
+    },
+    "machine": {
+      "incrementLb": 5,
+      "incrementKg": 2.5,
+      "note": "Machines, cables, smith machine and loaded bodyweight. Move to the next pin / add the smallest plate: about +5 lb / +2.5 kg (use +10 lb / +5 kg on big plate-loaded lower-body machines like leg press if 5 lb is impractical)."
+    }
+  },
+  "progressionRules": {
+    "method": "double_progression",
+    "description": "Each slot has a rep range (repMin-repMax). Keep the load fixed and add reps session to session until ALL working sets reach repMax at the target effort, then add load and drop back to the bottom of the range. Warm-up sets are not counted. Start a new exercise with a load you can lift for about repMin+2 reps on every set at the target RIR.",
+    "targetRir": {
+      "compound": "1-3",
+      "isolation": "0-2"
+    },
+    "increaseWhen": "In the most recent session of this exercise, every working set reached repMax at or within the target RIR (clean form, no grinding past it).",
+    "afterIncrease": "Next session, add the exercise's progressionCategory increment (rounded to available equipment) and aim for repMin or more on every set; build reps back toward repMax.",
+    "stallRule": "If any working set falls below repMin at the same load in 2 consecutive sessions of this exercise, reduce the load by ~10% (rounded to the nearest available increment) and rebuild with double progression. After a single bad session, keep the load and repeat.",
+    "stallConsecutiveSessions": 2,
+    "stallLoadReductionPct": 10,
+    "deload": {
+      "frequencyWeeks": "6-8",
+      "trigger": "Every 6-8 weeks of consistent training, or earlier if 3 or more exercises hit the stall rule within ~2 weeks, or performance, sleep and joint comfort trend down together.",
+      "protocol": "1 calendar week. Same exercises; sets per slot = ceil(sets x 0.5); loads ~10% lighter; stop every set at RIR 3-4. Resume pre-deload loads and rep targets the following week.",
+      "setReductionPct": 50,
+      "loadReductionPct": 10,
+      "targetRir": "3-4"
+    },
+    "cutAdjustments": {
+      "appliesWhenGoalType": "fat-loss",
+      "maintainCountsAsSuccess": true,
+      "description": "When goal.type is 'fat-loss', use these values instead of the base stallConsecutiveSessions / stallLoadReductionPct / stallRule (all other progression rules unchanged). On a calorie deficit, holding the same load and reps as last time is a SUCCESSFUL session, not a stall. Only add load when all working sets hit repMax at the target RIR, exactly as in the base rule.",
+      "stallConsecutiveSessions": 3,
+      "stallLoadReductionPct": 5,
+      "stallRule": "A stall on a cut = any working set below repMin at the same load for 3 consecutive sessions of the exercise. First response: hold the load for one more session, or drop one set on that slot (never below 2). If reps are still below repMin after that, reduce the load ~5% (rounded to the nearest available increment) and rebuild with double progression.",
+      "deloadNote": "Fatigue accumulates faster on a deficit: a deload may be needed a bit sooner, around every 5-6 weeks, if performance drops across several lifts, sleep worsens or joints ache. Same deload protocol as the base rule."
+    }
+  },
+  "categoryMappingRule": "barbell -> barbell_lower if the lift is lower-body dominant (squat, hinge, hip thrust, lunge), otherwise barbell_upper; ez_bar -> barbell_upper; dumbbell and kettlebell -> dumbbell; machine, cable, smith and bodyweight -> machine. For bodyweight exercises the logged load is ADDED external load (0 = bodyweight only); progress reps first, then add load in machine-sized steps (+5 lb / +2.5 kg via belt, vest or held dumbbell). Exercises with unilateral=true: reps and rest are per side, load is per dumbbell/side. Cardio exercises (kind=cardio) have progressionCategory null and no rep fields; the logic layer skips progression for them. Note: all ids (exercises, patterns, days, schedule keys) are kebab-case and permanent; progressionCategories keys (barbell_lower, barbell_upper, dumbbell, machine), equipment values and muscle names are enum values, not ids, and keep their snake_case spelling.",
+  "warmup": {
+    "pattern": "cardio-warmup",
+    "defaultExerciseId": "incline-treadmill",
+    "appliesTo": "all-days"
+  },
+  "patterns": [
+    {
+      "id": "horizontal-press",
+      "name": "Horizontal Press",
+      "rirClass": "compound",
+      "primaryMuscles": [
+        "chest"
+      ],
+      "secondaryMuscles": [
+        "front_delts",
+        "triceps"
+      ],
+      "exerciseIds": [
+        "barbell-bench-press",
+        "dumbbell-bench-press",
+        "machine-chest-press",
+        "smith-machine-bench-press",
+        "weighted-push-up"
+      ]
+    },
+    {
+      "id": "incline-press",
+      "name": "Incline Press",
+      "rirClass": "compound",
+      "primaryMuscles": [
+        "chest"
+      ],
+      "secondaryMuscles": [
+        "front_delts",
+        "triceps"
+      ],
+      "exerciseIds": [
+        "incline-barbell-bench-press",
+        "incline-dumbbell-press",
+        "incline-smith-machine-press",
+        "incline-machine-press"
+      ]
+    },
+    {
+      "id": "vertical-press",
+      "name": "Vertical Press",
+      "rirClass": "compound",
+      "primaryMuscles": [
+        "front_delts"
+      ],
+      "secondaryMuscles": [
+        "side_delts",
+        "triceps"
+      ],
+      "exerciseIds": [
+        "barbell-overhead-press",
+        "seated-dumbbell-shoulder-press",
+        "machine-shoulder-press",
+        "smith-machine-overhead-press",
+        "arnold-press"
+      ]
+    },
+    {
+      "id": "chest-fly",
+      "name": "Chest Fly",
+      "rirClass": "isolation",
+      "primaryMuscles": [
+        "chest"
+      ],
+      "secondaryMuscles": [],
+      "exerciseIds": [
+        "cable-chest-fly",
+        "pec-deck-fly",
+        "dumbbell-fly",
+        "low-to-high-cable-fly"
+      ]
+    },
+    {
+      "id": "lateral-raise",
+      "name": "Lateral Raise",
+      "rirClass": "isolation",
+      "primaryMuscles": [
+        "side_delts"
+      ],
+      "secondaryMuscles": [],
+      "exerciseIds": [
+        "dumbbell-lateral-raise",
+        "cable-lateral-raise",
+        "machine-lateral-raise",
+        "lean-away-dumbbell-lateral-raise"
+      ]
+    },
+    {
+      "id": "elbow-extension",
+      "name": "Elbow Extension (Triceps)",
+      "rirClass": "isolation",
+      "primaryMuscles": [
+        "triceps"
+      ],
+      "secondaryMuscles": [],
+      "exerciseIds": [
+        "overhead-cable-triceps-extension",
+        "cable-triceps-pushdown",
+        "ez-bar-skull-crusher",
+        "overhead-dumbbell-triceps-extension",
+        "weighted-dip",
+        "machine-triceps-extension"
+      ]
+    },
+    {
+      "id": "vertical-pull",
+      "name": "Vertical Pull",
+      "rirClass": "compound",
+      "primaryMuscles": [
+        "lats"
+      ],
+      "secondaryMuscles": [
+        "biceps"
+      ],
+      "exerciseIds": [
+        "pull-up",
+        "lat-pulldown",
+        "chin-up",
+        "neutral-grip-lat-pulldown",
+        "machine-lat-pulldown"
+      ]
+    },
+    {
+      "id": "horizontal-pull",
+      "name": "Horizontal Pull (Row)",
+      "rirClass": "compound",
+      "primaryMuscles": [
+        "upper_back"
+      ],
+      "secondaryMuscles": [
+        "lats",
+        "biceps",
+        "rear_delts"
+      ],
+      "exerciseIds": [
+        "barbell-bent-over-row",
+        "one-arm-dumbbell-row",
+        "seated-cable-row",
+        "chest-supported-machine-row",
+        "chest-supported-dumbbell-row",
+        "t-bar-row"
+      ]
+    },
+    {
+      "id": "rear-delt",
+      "name": "Rear Delt",
+      "rirClass": "isolation",
+      "primaryMuscles": [
+        "rear_delts"
+      ],
+      "secondaryMuscles": [
+        "upper_back"
+      ],
+      "exerciseIds": [
+        "face-pull",
+        "reverse-pec-deck",
+        "dumbbell-reverse-fly",
+        "cable-rear-delt-fly"
+      ]
+    },
+    {
+      "id": "elbow-flexion",
+      "name": "Elbow Flexion (Biceps)",
+      "rirClass": "isolation",
+      "primaryMuscles": [
+        "biceps"
+      ],
+      "secondaryMuscles": [],
+      "exerciseIds": [
+        "barbell-curl",
+        "ez-bar-curl",
+        "incline-dumbbell-curl",
+        "dumbbell-hammer-curl",
+        "cable-curl",
+        "machine-preacher-curl"
+      ]
+    },
+    {
+      "id": "squat",
+      "name": "Squat",
+      "rirClass": "compound",
+      "primaryMuscles": [
+        "quads"
+      ],
+      "secondaryMuscles": [
+        "glutes"
+      ],
+      "exerciseIds": [
+        "barbell-back-squat",
+        "leg-press",
+        "hack-squat",
+        "barbell-front-squat",
+        "smith-machine-squat",
+        "goblet-squat"
+      ]
+    },
+    {
+      "id": "hip-hinge",
+      "name": "Hip Hinge",
+      "rirClass": "compound",
+      "primaryMuscles": [
+        "hamstrings",
+        "glutes"
+      ],
+      "secondaryMuscles": [],
+      "exerciseIds": [
+        "romanian-deadlift",
+        "conventional-deadlift",
+        "dumbbell-romanian-deadlift",
+        "cable-pull-through",
+        "back-extension-45"
+      ]
+    },
+    {
+      "id": "hip-thrust",
+      "name": "Hip Thrust / Bridge",
+      "rirClass": "compound",
+      "primaryMuscles": [
+        "glutes"
+      ],
+      "secondaryMuscles": [
+        "hamstrings"
+      ],
+      "exerciseIds": [
+        "barbell-hip-thrust",
+        "smith-machine-hip-thrust",
+        "machine-hip-thrust",
+        "dumbbell-hip-thrust",
+        "barbell-glute-bridge"
+      ]
+    },
+    {
+      "id": "lunge-single-leg",
+      "name": "Lunge / Single-Leg",
+      "rirClass": "compound",
+      "primaryMuscles": [
+        "quads",
+        "glutes"
+      ],
+      "secondaryMuscles": [],
+      "exerciseIds": [
+        "bulgarian-split-squat",
+        "dumbbell-walking-lunge",
+        "smith-machine-split-squat",
+        "barbell-reverse-lunge",
+        "dumbbell-step-up"
+      ]
+    },
+    {
+      "id": "knee-extension",
+      "name": "Knee Extension",
+      "rirClass": "isolation",
+      "primaryMuscles": [
+        "quads"
+      ],
+      "secondaryMuscles": [],
+      "exerciseIds": [
+        "leg-extension",
+        "single-leg-extension",
+        "sissy-squat",
+        "reverse-nordic"
+      ]
+    },
+    {
+      "id": "knee-flexion",
+      "name": "Knee Flexion (Leg Curl)",
+      "rirClass": "isolation",
+      "primaryMuscles": [
+        "hamstrings"
+      ],
+      "secondaryMuscles": [],
+      "exerciseIds": [
+        "lying-leg-curl",
+        "seated-leg-curl",
+        "standing-single-leg-curl",
+        "nordic-hamstring-curl",
+        "dumbbell-leg-curl"
+      ]
+    },
+    {
+      "id": "calf-raise",
+      "name": "Calf Raise",
+      "rirClass": "isolation",
+      "primaryMuscles": [
+        "calves"
+      ],
+      "secondaryMuscles": [],
+      "exerciseIds": [
+        "standing-calf-raise",
+        "seated-calf-raise",
+        "leg-press-calf-raise",
+        "smith-machine-calf-raise",
+        "single-leg-dumbbell-calf-raise"
+      ]
+    },
+    {
+      "id": "core",
+      "name": "Core",
+      "rirClass": "isolation",
+      "primaryMuscles": [
+        "core"
+      ],
+      "secondaryMuscles": [],
+      "exerciseIds": [
+        "hanging-leg-raise",
+        "cable-crunch",
+        "ab-wheel-rollout",
+        "machine-crunch",
+        "decline-sit-up"
+      ]
+    },
+    {
+      "id": "cardio-warmup",
+      "name": "Cardio Warm-up",
+      "rirClass": null,
+      "primaryMuscles": [],
+      "secondaryMuscles": [],
+      "exerciseIds": [
+        "incline-treadmill",
+        "flat-treadmill",
+        "peloton"
+      ]
+    }
+  ],
+  "exercises": [
+    {
+      "id": "barbell-bench-press",
+      "name": "Barbell Bench Press",
+      "kind": "strength",
+      "pattern": "horizontal-press",
+      "equipment": "barbell",
+      "progressionCategory": "barbell_upper",
+      "primaryMuscles": [
+        "chest"
+      ]
+    },
+    {
+      "id": "dumbbell-bench-press",
+      "name": "Dumbbell Bench Press",
+      "kind": "strength",
+      "pattern": "horizontal-press",
+      "equipment": "dumbbell",
+      "progressionCategory": "dumbbell",
+      "primaryMuscles": [
+        "chest"
+      ]
+    },
+    {
+      "id": "machine-chest-press",
+      "name": "Machine Chest Press",
+      "kind": "strength",
+      "pattern": "horizontal-press",
+      "equipment": "machine",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "chest"
+      ]
+    },
+    {
+      "id": "smith-machine-bench-press",
+      "name": "Smith Machine Bench Press",
+      "kind": "strength",
+      "pattern": "horizontal-press",
+      "equipment": "smith",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "chest"
+      ]
+    },
+    {
+      "id": "weighted-push-up",
+      "name": "Push-Up (Weighted as Needed)",
+      "kind": "strength",
+      "pattern": "horizontal-press",
+      "equipment": "bodyweight",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "chest"
+      ]
+    },
+    {
+      "id": "incline-barbell-bench-press",
+      "name": "Incline Barbell Bench Press",
+      "kind": "strength",
+      "pattern": "incline-press",
+      "equipment": "barbell",
+      "progressionCategory": "barbell_upper",
+      "primaryMuscles": [
+        "chest"
+      ]
+    },
+    {
+      "id": "incline-dumbbell-press",
+      "name": "Incline Dumbbell Press",
+      "kind": "strength",
+      "pattern": "incline-press",
+      "equipment": "dumbbell",
+      "progressionCategory": "dumbbell",
+      "primaryMuscles": [
+        "chest"
+      ]
+    },
+    {
+      "id": "incline-smith-machine-press",
+      "name": "Incline Smith Machine Press",
+      "kind": "strength",
+      "pattern": "incline-press",
+      "equipment": "smith",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "chest"
+      ]
+    },
+    {
+      "id": "incline-machine-press",
+      "name": "Incline Machine Press",
+      "kind": "strength",
+      "pattern": "incline-press",
+      "equipment": "machine",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "chest"
+      ]
+    },
+    {
+      "id": "barbell-overhead-press",
+      "name": "Standing Barbell Overhead Press",
+      "kind": "strength",
+      "pattern": "vertical-press",
+      "equipment": "barbell",
+      "progressionCategory": "barbell_upper",
+      "primaryMuscles": [
+        "front_delts"
+      ]
+    },
+    {
+      "id": "seated-dumbbell-shoulder-press",
+      "name": "Seated Dumbbell Shoulder Press",
+      "kind": "strength",
+      "pattern": "vertical-press",
+      "equipment": "dumbbell",
+      "progressionCategory": "dumbbell",
+      "primaryMuscles": [
+        "front_delts"
+      ]
+    },
+    {
+      "id": "machine-shoulder-press",
+      "name": "Machine Shoulder Press",
+      "kind": "strength",
+      "pattern": "vertical-press",
+      "equipment": "machine",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "front_delts"
+      ]
+    },
+    {
+      "id": "smith-machine-overhead-press",
+      "name": "Seated Smith Machine Overhead Press",
+      "kind": "strength",
+      "pattern": "vertical-press",
+      "equipment": "smith",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "front_delts"
+      ]
+    },
+    {
+      "id": "arnold-press",
+      "name": "Arnold Press",
+      "kind": "strength",
+      "pattern": "vertical-press",
+      "equipment": "dumbbell",
+      "progressionCategory": "dumbbell",
+      "primaryMuscles": [
+        "front_delts"
+      ]
+    },
+    {
+      "id": "cable-chest-fly",
+      "name": "Cable Chest Fly",
+      "kind": "strength",
+      "pattern": "chest-fly",
+      "equipment": "cable",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "chest"
+      ]
+    },
+    {
+      "id": "pec-deck-fly",
+      "name": "Pec Deck Fly",
+      "kind": "strength",
+      "pattern": "chest-fly",
+      "equipment": "machine",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "chest"
+      ]
+    },
+    {
+      "id": "dumbbell-fly",
+      "name": "Flat Dumbbell Fly",
+      "kind": "strength",
+      "pattern": "chest-fly",
+      "equipment": "dumbbell",
+      "progressionCategory": "dumbbell",
+      "primaryMuscles": [
+        "chest"
+      ]
+    },
+    {
+      "id": "low-to-high-cable-fly",
+      "name": "Low-to-High Cable Fly",
+      "kind": "strength",
+      "pattern": "chest-fly",
+      "equipment": "cable",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "chest"
+      ]
+    },
+    {
+      "id": "dumbbell-lateral-raise",
+      "name": "Dumbbell Lateral Raise",
+      "kind": "strength",
+      "pattern": "lateral-raise",
+      "equipment": "dumbbell",
+      "progressionCategory": "dumbbell",
+      "primaryMuscles": [
+        "side_delts"
+      ]
+    },
+    {
+      "id": "cable-lateral-raise",
+      "name": "Single-Arm Cable Lateral Raise",
+      "kind": "strength",
+      "pattern": "lateral-raise",
+      "equipment": "cable",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "side_delts"
+      ],
+      "unilateral": true
+    },
+    {
+      "id": "machine-lateral-raise",
+      "name": "Machine Lateral Raise",
+      "kind": "strength",
+      "pattern": "lateral-raise",
+      "equipment": "machine",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "side_delts"
+      ]
+    },
+    {
+      "id": "lean-away-dumbbell-lateral-raise",
+      "name": "Lean-Away Dumbbell Lateral Raise",
+      "kind": "strength",
+      "pattern": "lateral-raise",
+      "equipment": "dumbbell",
+      "progressionCategory": "dumbbell",
+      "primaryMuscles": [
+        "side_delts"
+      ],
+      "unilateral": true
+    },
+    {
+      "id": "overhead-cable-triceps-extension",
+      "name": "Overhead Cable Triceps Extension",
+      "kind": "strength",
+      "pattern": "elbow-extension",
+      "equipment": "cable",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "triceps"
+      ]
+    },
+    {
+      "id": "cable-triceps-pushdown",
+      "name": "Cable Triceps Pushdown (Rope)",
+      "kind": "strength",
+      "pattern": "elbow-extension",
+      "equipment": "cable",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "triceps"
+      ]
+    },
+    {
+      "id": "ez-bar-skull-crusher",
+      "name": "EZ-Bar Skull Crusher",
+      "kind": "strength",
+      "pattern": "elbow-extension",
+      "equipment": "ez_bar",
+      "progressionCategory": "barbell_upper",
+      "primaryMuscles": [
+        "triceps"
+      ]
+    },
+    {
+      "id": "overhead-dumbbell-triceps-extension",
+      "name": "Overhead Dumbbell Triceps Extension",
+      "kind": "strength",
+      "pattern": "elbow-extension",
+      "equipment": "dumbbell",
+      "progressionCategory": "dumbbell",
+      "primaryMuscles": [
+        "triceps"
+      ]
+    },
+    {
+      "id": "weighted-dip",
+      "name": "Dip (Weighted as Needed)",
+      "kind": "strength",
+      "pattern": "elbow-extension",
+      "equipment": "bodyweight",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "triceps"
+      ]
+    },
+    {
+      "id": "machine-triceps-extension",
+      "name": "Machine Triceps Extension",
+      "kind": "strength",
+      "pattern": "elbow-extension",
+      "equipment": "machine",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "triceps"
+      ]
+    },
+    {
+      "id": "pull-up",
+      "name": "Pull-Up (Weighted as Needed)",
+      "kind": "strength",
+      "pattern": "vertical-pull",
+      "equipment": "bodyweight",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "lats"
+      ]
+    },
+    {
+      "id": "lat-pulldown",
+      "name": "Lat Pulldown",
+      "kind": "strength",
+      "pattern": "vertical-pull",
+      "equipment": "cable",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "lats"
+      ]
+    },
+    {
+      "id": "chin-up",
+      "name": "Chin-Up (Weighted as Needed)",
+      "kind": "strength",
+      "pattern": "vertical-pull",
+      "equipment": "bodyweight",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "lats"
+      ]
+    },
+    {
+      "id": "neutral-grip-lat-pulldown",
+      "name": "Neutral-Grip Lat Pulldown",
+      "kind": "strength",
+      "pattern": "vertical-pull",
+      "equipment": "cable",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "lats"
+      ]
+    },
+    {
+      "id": "machine-lat-pulldown",
+      "name": "Machine Lat Pulldown",
+      "kind": "strength",
+      "pattern": "vertical-pull",
+      "equipment": "machine",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "lats"
+      ]
+    },
+    {
+      "id": "barbell-bent-over-row",
+      "name": "Barbell Bent-Over Row",
+      "kind": "strength",
+      "pattern": "horizontal-pull",
+      "equipment": "barbell",
+      "progressionCategory": "barbell_upper",
+      "primaryMuscles": [
+        "upper_back"
+      ]
+    },
+    {
+      "id": "one-arm-dumbbell-row",
+      "name": "One-Arm Dumbbell Row",
+      "kind": "strength",
+      "pattern": "horizontal-pull",
+      "equipment": "dumbbell",
+      "progressionCategory": "dumbbell",
+      "primaryMuscles": [
+        "upper_back"
+      ],
+      "unilateral": true
+    },
+    {
+      "id": "seated-cable-row",
+      "name": "Seated Cable Row",
+      "kind": "strength",
+      "pattern": "horizontal-pull",
+      "equipment": "cable",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "upper_back"
+      ]
+    },
+    {
+      "id": "chest-supported-machine-row",
+      "name": "Chest-Supported Machine Row",
+      "kind": "strength",
+      "pattern": "horizontal-pull",
+      "equipment": "machine",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "upper_back"
+      ]
+    },
+    {
+      "id": "chest-supported-dumbbell-row",
+      "name": "Chest-Supported Dumbbell Row",
+      "kind": "strength",
+      "pattern": "horizontal-pull",
+      "equipment": "dumbbell",
+      "progressionCategory": "dumbbell",
+      "primaryMuscles": [
+        "upper_back"
+      ]
+    },
+    {
+      "id": "t-bar-row",
+      "name": "T-Bar Row",
+      "kind": "strength",
+      "pattern": "horizontal-pull",
+      "equipment": "barbell",
+      "progressionCategory": "barbell_upper",
+      "primaryMuscles": [
+        "upper_back"
+      ]
+    },
+    {
+      "id": "face-pull",
+      "name": "Cable Face Pull",
+      "kind": "strength",
+      "pattern": "rear-delt",
+      "equipment": "cable",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "rear_delts"
+      ]
+    },
+    {
+      "id": "reverse-pec-deck",
+      "name": "Reverse Pec Deck",
+      "kind": "strength",
+      "pattern": "rear-delt",
+      "equipment": "machine",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "rear_delts"
+      ]
+    },
+    {
+      "id": "dumbbell-reverse-fly",
+      "name": "Bent-Over Dumbbell Reverse Fly",
+      "kind": "strength",
+      "pattern": "rear-delt",
+      "equipment": "dumbbell",
+      "progressionCategory": "dumbbell",
+      "primaryMuscles": [
+        "rear_delts"
+      ]
+    },
+    {
+      "id": "cable-rear-delt-fly",
+      "name": "Cable Rear Delt Fly",
+      "kind": "strength",
+      "pattern": "rear-delt",
+      "equipment": "cable",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "rear_delts"
+      ]
+    },
+    {
+      "id": "barbell-curl",
+      "name": "Barbell Curl",
+      "kind": "strength",
+      "pattern": "elbow-flexion",
+      "equipment": "barbell",
+      "progressionCategory": "barbell_upper",
+      "primaryMuscles": [
+        "biceps"
+      ]
+    },
+    {
+      "id": "ez-bar-curl",
+      "name": "EZ-Bar Curl",
+      "kind": "strength",
+      "pattern": "elbow-flexion",
+      "equipment": "ez_bar",
+      "progressionCategory": "barbell_upper",
+      "primaryMuscles": [
+        "biceps"
+      ]
+    },
+    {
+      "id": "incline-dumbbell-curl",
+      "name": "Incline Dumbbell Curl",
+      "kind": "strength",
+      "pattern": "elbow-flexion",
+      "equipment": "dumbbell",
+      "progressionCategory": "dumbbell",
+      "primaryMuscles": [
+        "biceps"
+      ]
+    },
+    {
+      "id": "dumbbell-hammer-curl",
+      "name": "Dumbbell Hammer Curl",
+      "kind": "strength",
+      "pattern": "elbow-flexion",
+      "equipment": "dumbbell",
+      "progressionCategory": "dumbbell",
+      "primaryMuscles": [
+        "biceps"
+      ]
+    },
+    {
+      "id": "cable-curl",
+      "name": "Cable Curl",
+      "kind": "strength",
+      "pattern": "elbow-flexion",
+      "equipment": "cable",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "biceps"
+      ]
+    },
+    {
+      "id": "machine-preacher-curl",
+      "name": "Machine Preacher Curl",
+      "kind": "strength",
+      "pattern": "elbow-flexion",
+      "equipment": "machine",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "biceps"
+      ]
+    },
+    {
+      "id": "barbell-back-squat",
+      "name": "Barbell Back Squat",
+      "kind": "strength",
+      "pattern": "squat",
+      "equipment": "barbell",
+      "progressionCategory": "barbell_lower",
+      "primaryMuscles": [
+        "quads"
+      ]
+    },
+    {
+      "id": "leg-press",
+      "name": "Leg Press",
+      "kind": "strength",
+      "pattern": "squat",
+      "equipment": "machine",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "quads"
+      ]
+    },
+    {
+      "id": "hack-squat",
+      "name": "Hack Squat (Machine)",
+      "kind": "strength",
+      "pattern": "squat",
+      "equipment": "machine",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "quads"
+      ]
+    },
+    {
+      "id": "barbell-front-squat",
+      "name": "Barbell Front Squat",
+      "kind": "strength",
+      "pattern": "squat",
+      "equipment": "barbell",
+      "progressionCategory": "barbell_lower",
+      "primaryMuscles": [
+        "quads"
+      ]
+    },
+    {
+      "id": "smith-machine-squat",
+      "name": "Smith Machine Squat",
+      "kind": "strength",
+      "pattern": "squat",
+      "equipment": "smith",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "quads"
+      ]
+    },
+    {
+      "id": "goblet-squat",
+      "name": "Goblet Squat",
+      "kind": "strength",
+      "pattern": "squat",
+      "equipment": "dumbbell",
+      "progressionCategory": "dumbbell",
+      "primaryMuscles": [
+        "quads"
+      ]
+    },
+    {
+      "id": "romanian-deadlift",
+      "name": "Barbell Romanian Deadlift",
+      "kind": "strength",
+      "pattern": "hip-hinge",
+      "equipment": "barbell",
+      "progressionCategory": "barbell_lower",
+      "primaryMuscles": [
+        "hamstrings",
+        "glutes"
+      ]
+    },
+    {
+      "id": "conventional-deadlift",
+      "name": "Conventional Deadlift",
+      "kind": "strength",
+      "pattern": "hip-hinge",
+      "equipment": "barbell",
+      "progressionCategory": "barbell_lower",
+      "primaryMuscles": [
+        "hamstrings",
+        "glutes"
+      ]
+    },
+    {
+      "id": "dumbbell-romanian-deadlift",
+      "name": "Dumbbell Romanian Deadlift",
+      "kind": "strength",
+      "pattern": "hip-hinge",
+      "equipment": "dumbbell",
+      "progressionCategory": "dumbbell",
+      "primaryMuscles": [
+        "hamstrings",
+        "glutes"
+      ]
+    },
+    {
+      "id": "cable-pull-through",
+      "name": "Cable Pull-Through",
+      "kind": "strength",
+      "pattern": "hip-hinge",
+      "equipment": "cable",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "hamstrings",
+        "glutes"
+      ]
+    },
+    {
+      "id": "back-extension-45",
+      "name": "45-Degree Back Extension (Weighted as Needed)",
+      "kind": "strength",
+      "pattern": "hip-hinge",
+      "equipment": "bodyweight",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "hamstrings",
+        "glutes"
+      ]
+    },
+    {
+      "id": "barbell-hip-thrust",
+      "name": "Barbell Hip Thrust",
+      "kind": "strength",
+      "pattern": "hip-thrust",
+      "equipment": "barbell",
+      "progressionCategory": "barbell_lower",
+      "primaryMuscles": [
+        "glutes"
+      ]
+    },
+    {
+      "id": "smith-machine-hip-thrust",
+      "name": "Smith Machine Hip Thrust",
+      "kind": "strength",
+      "pattern": "hip-thrust",
+      "equipment": "smith",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "glutes"
+      ]
+    },
+    {
+      "id": "machine-hip-thrust",
+      "name": "Machine Hip Thrust",
+      "kind": "strength",
+      "pattern": "hip-thrust",
+      "equipment": "machine",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "glutes"
+      ]
+    },
+    {
+      "id": "dumbbell-hip-thrust",
+      "name": "Dumbbell Hip Thrust",
+      "kind": "strength",
+      "pattern": "hip-thrust",
+      "equipment": "dumbbell",
+      "progressionCategory": "dumbbell",
+      "primaryMuscles": [
+        "glutes"
+      ]
+    },
+    {
+      "id": "barbell-glute-bridge",
+      "name": "Barbell Glute Bridge",
+      "kind": "strength",
+      "pattern": "hip-thrust",
+      "equipment": "barbell",
+      "progressionCategory": "barbell_lower",
+      "primaryMuscles": [
+        "glutes"
+      ]
+    },
+    {
+      "id": "bulgarian-split-squat",
+      "name": "Dumbbell Bulgarian Split Squat",
+      "kind": "strength",
+      "pattern": "lunge-single-leg",
+      "equipment": "dumbbell",
+      "progressionCategory": "dumbbell",
+      "primaryMuscles": [
+        "quads",
+        "glutes"
+      ],
+      "unilateral": true
+    },
+    {
+      "id": "dumbbell-walking-lunge",
+      "name": "Dumbbell Walking Lunge",
+      "kind": "strength",
+      "pattern": "lunge-single-leg",
+      "equipment": "dumbbell",
+      "progressionCategory": "dumbbell",
+      "primaryMuscles": [
+        "quads",
+        "glutes"
+      ],
+      "unilateral": true
+    },
+    {
+      "id": "smith-machine-split-squat",
+      "name": "Smith Machine Split Squat",
+      "kind": "strength",
+      "pattern": "lunge-single-leg",
+      "equipment": "smith",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "quads",
+        "glutes"
+      ],
+      "unilateral": true
+    },
+    {
+      "id": "barbell-reverse-lunge",
+      "name": "Barbell Reverse Lunge",
+      "kind": "strength",
+      "pattern": "lunge-single-leg",
+      "equipment": "barbell",
+      "progressionCategory": "barbell_lower",
+      "primaryMuscles": [
+        "quads",
+        "glutes"
+      ],
+      "unilateral": true
+    },
+    {
+      "id": "dumbbell-step-up",
+      "name": "Dumbbell Step-Up",
+      "kind": "strength",
+      "pattern": "lunge-single-leg",
+      "equipment": "dumbbell",
+      "progressionCategory": "dumbbell",
+      "primaryMuscles": [
+        "quads",
+        "glutes"
+      ],
+      "unilateral": true
+    },
+    {
+      "id": "leg-extension",
+      "name": "Leg Extension",
+      "kind": "strength",
+      "pattern": "knee-extension",
+      "equipment": "machine",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "quads"
+      ]
+    },
+    {
+      "id": "single-leg-extension",
+      "name": "Single-Leg Leg Extension",
+      "kind": "strength",
+      "pattern": "knee-extension",
+      "equipment": "machine",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "quads"
+      ],
+      "unilateral": true
+    },
+    {
+      "id": "sissy-squat",
+      "name": "Sissy Squat (Weighted as Needed)",
+      "kind": "strength",
+      "pattern": "knee-extension",
+      "equipment": "bodyweight",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "quads"
+      ]
+    },
+    {
+      "id": "reverse-nordic",
+      "name": "Reverse Nordic (Weighted as Needed)",
+      "kind": "strength",
+      "pattern": "knee-extension",
+      "equipment": "bodyweight",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "quads"
+      ]
+    },
+    {
+      "id": "lying-leg-curl",
+      "name": "Lying Leg Curl",
+      "kind": "strength",
+      "pattern": "knee-flexion",
+      "equipment": "machine",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "hamstrings"
+      ]
+    },
+    {
+      "id": "seated-leg-curl",
+      "name": "Seated Leg Curl",
+      "kind": "strength",
+      "pattern": "knee-flexion",
+      "equipment": "machine",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "hamstrings"
+      ]
+    },
+    {
+      "id": "standing-single-leg-curl",
+      "name": "Standing Single-Leg Curl",
+      "kind": "strength",
+      "pattern": "knee-flexion",
+      "equipment": "machine",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "hamstrings"
+      ],
+      "unilateral": true
+    },
+    {
+      "id": "nordic-hamstring-curl",
+      "name": "Nordic Hamstring Curl",
+      "kind": "strength",
+      "pattern": "knee-flexion",
+      "equipment": "bodyweight",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "hamstrings"
+      ]
+    },
+    {
+      "id": "dumbbell-leg-curl",
+      "name": "Prone Dumbbell Leg Curl",
+      "kind": "strength",
+      "pattern": "knee-flexion",
+      "equipment": "dumbbell",
+      "progressionCategory": "dumbbell",
+      "primaryMuscles": [
+        "hamstrings"
+      ]
+    },
+    {
+      "id": "standing-calf-raise",
+      "name": "Standing Calf Raise (Machine)",
+      "kind": "strength",
+      "pattern": "calf-raise",
+      "equipment": "machine",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "calves"
+      ]
+    },
+    {
+      "id": "seated-calf-raise",
+      "name": "Seated Calf Raise",
+      "kind": "strength",
+      "pattern": "calf-raise",
+      "equipment": "machine",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "calves"
+      ]
+    },
+    {
+      "id": "leg-press-calf-raise",
+      "name": "Leg Press Calf Raise",
+      "kind": "strength",
+      "pattern": "calf-raise",
+      "equipment": "machine",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "calves"
+      ]
+    },
+    {
+      "id": "smith-machine-calf-raise",
+      "name": "Smith Machine Calf Raise",
+      "kind": "strength",
+      "pattern": "calf-raise",
+      "equipment": "smith",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "calves"
+      ]
+    },
+    {
+      "id": "single-leg-dumbbell-calf-raise",
+      "name": "Single-Leg Dumbbell Calf Raise",
+      "kind": "strength",
+      "pattern": "calf-raise",
+      "equipment": "dumbbell",
+      "progressionCategory": "dumbbell",
+      "primaryMuscles": [
+        "calves"
+      ],
+      "unilateral": true
+    },
+    {
+      "id": "hanging-leg-raise",
+      "name": "Hanging Leg Raise",
+      "kind": "strength",
+      "pattern": "core",
+      "equipment": "bodyweight",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "core"
+      ]
+    },
+    {
+      "id": "cable-crunch",
+      "name": "Kneeling Cable Crunch",
+      "kind": "strength",
+      "pattern": "core",
+      "equipment": "cable",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "core"
+      ]
+    },
+    {
+      "id": "ab-wheel-rollout",
+      "name": "Ab Wheel Rollout",
+      "kind": "strength",
+      "pattern": "core",
+      "equipment": "bodyweight",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "core"
+      ]
+    },
+    {
+      "id": "machine-crunch",
+      "name": "Machine Crunch",
+      "kind": "strength",
+      "pattern": "core",
+      "equipment": "machine",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "core"
+      ]
+    },
+    {
+      "id": "decline-sit-up",
+      "name": "Decline Sit-Up (Weighted as Needed)",
+      "kind": "strength",
+      "pattern": "core",
+      "equipment": "bodyweight",
+      "progressionCategory": "machine",
+      "primaryMuscles": [
+        "core"
+      ]
+    },
+    {
+      "id": "incline-treadmill",
+      "name": "Incline Treadmill Walk",
+      "kind": "cardio",
+      "pattern": "cardio-warmup",
+      "equipment": "treadmill",
+      "progressionCategory": null,
+      "primaryMuscles": [],
+      "defaultDurationMin": 10,
+      "defaultPrescription": "10 min walk, 2.8-3.5 mph (4.5-5.6 km/h), 8-12% incline, easy-moderate (RPE 4-5, can hold a conversation)",
+      "notes": "Default warm-up. Walk without holding the rails. Raise the incline gradually over the first 2 min."
+    },
+    {
+      "id": "flat-treadmill",
+      "name": "Flat Treadmill Walk / Easy Jog",
+      "kind": "cardio",
+      "pattern": "cardio-warmup",
+      "equipment": "treadmill",
+      "progressionCategory": null,
+      "primaryMuscles": [],
+      "defaultDurationMin": 10,
+      "defaultPrescription": "10 min at 0-1% incline, brisk walk or easy jog, RPE 4-5",
+      "notes": "Use when incline walking is unavailable or bothers the calves/Achilles before a leg day."
+    },
+    {
+      "id": "peloton",
+      "name": "Peloton / Stationary Bike",
+      "kind": "cardio",
+      "pattern": "cardio-warmup",
+      "equipment": "bike",
+      "progressionCategory": null,
+      "primaryMuscles": [],
+      "defaultDurationMin": 10,
+      "defaultPrescription": "10 min easy-moderate spin, ~80-90 rpm, RPE 4-5",
+      "notes": "Lowest-impact option; good before leg days. Keep it easy: the goal is to warm up, not to fatigue the legs."
+    }
+  ],
+  "schedules": {
+    "six-day": [
+      "push-a",
+      "pull-a",
+      "legs-a",
+      "push-b",
+      "pull-b",
+      "legs-b"
+    ],
+    "three-day": {
+      "rotation": [
+        "push-a",
+        "pull-a",
+        "legs-a",
+        "push-b",
+        "pull-b",
+        "legs-b"
+      ],
+      "note": "Train 3 non-consecutive days per week (e.g. Mon/Wed/Fri) and always do the NEXT day in the rotation, regardless of the calendar. Each day recurs every ~2 weeks and each muscle is trained ~1x/week, so weekly sets per muscle are roughly halved (~4-7 with the fat-loss set counts). Progression and deload rules are unchanged."
+    }
+  },
+  "days": [
+    {
+      "id": "push-a",
+      "name": "Push A",
+      "focus": "Strength-leaning push: chest, shoulders, triceps",
+      "slots": [
+        {
+          "order": 1,
+          "pattern": "horizontal-press",
+          "defaultExerciseId": "barbell-bench-press",
+          "sets": 4,
+          "repMin": 5,
+          "repMax": 8,
+          "restSec": 180
+        },
+        {
+          "order": 2,
+          "pattern": "vertical-press",
+          "defaultExerciseId": "barbell-overhead-press",
+          "sets": 3,
+          "repMin": 6,
+          "repMax": 10,
+          "restSec": 150
+        },
+        {
+          "order": 3,
+          "pattern": "incline-press",
+          "defaultExerciseId": "incline-dumbbell-press",
+          "sets": 2,
+          "repMin": 8,
+          "repMax": 12,
+          "restSec": 120
+        },
+        {
+          "order": 4,
+          "pattern": "lateral-raise",
+          "defaultExerciseId": "dumbbell-lateral-raise",
+          "sets": 3,
+          "repMin": 10,
+          "repMax": 15,
+          "restSec": 60
+        },
+        {
+          "order": 5,
+          "pattern": "elbow-extension",
+          "defaultExerciseId": "overhead-cable-triceps-extension",
+          "sets": 2,
+          "repMin": 8,
+          "repMax": 12,
+          "restSec": 90
+        }
+      ]
+    },
+    {
+      "id": "pull-a",
+      "name": "Pull A",
+      "focus": "Strength-leaning pull: back thickness and width, rear delts, biceps",
+      "slots": [
+        {
+          "order": 1,
+          "pattern": "horizontal-pull",
+          "defaultExerciseId": "barbell-bent-over-row",
+          "sets": 4,
+          "repMin": 5,
+          "repMax": 8,
+          "restSec": 180
+        },
+        {
+          "order": 2,
+          "pattern": "vertical-pull",
+          "defaultExerciseId": "pull-up",
+          "sets": 3,
+          "repMin": 6,
+          "repMax": 10,
+          "restSec": 150
+        },
+        {
+          "order": 3,
+          "pattern": "horizontal-pull",
+          "defaultExerciseId": "one-arm-dumbbell-row",
+          "sets": 2,
+          "repMin": 8,
+          "repMax": 12,
+          "restSec": 90
+        },
+        {
+          "order": 4,
+          "pattern": "rear-delt",
+          "defaultExerciseId": "face-pull",
+          "sets": 2,
+          "repMin": 12,
+          "repMax": 15,
+          "restSec": 60
+        },
+        {
+          "order": 5,
+          "pattern": "elbow-flexion",
+          "defaultExerciseId": "barbell-curl",
+          "sets": 2,
+          "repMin": 6,
+          "repMax": 10,
+          "restSec": 90
+        }
+      ]
+    },
+    {
+      "id": "legs-a",
+      "name": "Legs A",
+      "focus": "Strength-leaning legs: squat-dominant quads, hinge, hamstrings, calves, core",
+      "slots": [
+        {
+          "order": 1,
+          "pattern": "squat",
+          "defaultExerciseId": "barbell-back-squat",
+          "sets": 4,
+          "repMin": 5,
+          "repMax": 8,
+          "restSec": 180
+        },
+        {
+          "order": 2,
+          "pattern": "hip-hinge",
+          "defaultExerciseId": "romanian-deadlift",
+          "sets": 3,
+          "repMin": 6,
+          "repMax": 10,
+          "restSec": 150
+        },
+        {
+          "order": 3,
+          "pattern": "squat",
+          "defaultExerciseId": "leg-press",
+          "sets": 2,
+          "repMin": 8,
+          "repMax": 12,
+          "restSec": 120
+        },
+        {
+          "order": 4,
+          "pattern": "knee-flexion",
+          "defaultExerciseId": "lying-leg-curl",
+          "sets": 3,
+          "repMin": 8,
+          "repMax": 12,
+          "restSec": 90
+        },
+        {
+          "order": 5,
+          "pattern": "calf-raise",
+          "defaultExerciseId": "standing-calf-raise",
+          "sets": 4,
+          "repMin": 8,
+          "repMax": 12,
+          "restSec": 75
+        },
+        {
+          "order": 6,
+          "pattern": "core",
+          "defaultExerciseId": "hanging-leg-raise",
+          "sets": 2,
+          "repMin": 10,
+          "repMax": 15,
+          "restSec": 60
+        }
+      ]
+    },
+    {
+      "id": "push-b",
+      "name": "Push B",
+      "focus": "Hypertrophy-leaning push: upper chest, chest, delts, triceps",
+      "slots": [
+        {
+          "order": 1,
+          "pattern": "incline-press",
+          "defaultExerciseId": "incline-barbell-bench-press",
+          "sets": 3,
+          "repMin": 8,
+          "repMax": 12,
+          "restSec": 120
+        },
+        {
+          "order": 2,
+          "pattern": "vertical-press",
+          "defaultExerciseId": "seated-dumbbell-shoulder-press",
+          "sets": 3,
+          "repMin": 8,
+          "repMax": 12,
+          "restSec": 120
+        },
+        {
+          "order": 3,
+          "pattern": "horizontal-press",
+          "defaultExerciseId": "machine-chest-press",
+          "sets": 2,
+          "repMin": 8,
+          "repMax": 12,
+          "restSec": 90
+        },
+        {
+          "order": 4,
+          "pattern": "chest-fly",
+          "defaultExerciseId": "cable-chest-fly",
+          "sets": 2,
+          "repMin": 12,
+          "repMax": 15,
+          "restSec": 60
+        },
+        {
+          "order": 5,
+          "pattern": "lateral-raise",
+          "defaultExerciseId": "cable-lateral-raise",
+          "sets": 3,
+          "repMin": 12,
+          "repMax": 15,
+          "restSec": 60
+        },
+        {
+          "order": 6,
+          "pattern": "elbow-extension",
+          "defaultExerciseId": "cable-triceps-pushdown",
+          "sets": 2,
+          "repMin": 10,
+          "repMax": 15,
+          "restSec": 60
+        }
+      ]
+    },
+    {
+      "id": "pull-b",
+      "name": "Pull B",
+      "focus": "Hypertrophy-leaning pull: lats, mid back, rear delts, biceps, core",
+      "slots": [
+        {
+          "order": 1,
+          "pattern": "vertical-pull",
+          "defaultExerciseId": "lat-pulldown",
+          "sets": 4,
+          "repMin": 8,
+          "repMax": 12,
+          "restSec": 120
+        },
+        {
+          "order": 2,
+          "pattern": "horizontal-pull",
+          "defaultExerciseId": "seated-cable-row",
+          "sets": 3,
+          "repMin": 10,
+          "repMax": 15,
+          "restSec": 90
+        },
+        {
+          "order": 3,
+          "pattern": "rear-delt",
+          "defaultExerciseId": "reverse-pec-deck",
+          "sets": 2,
+          "repMin": 12,
+          "repMax": 15,
+          "restSec": 60
+        },
+        {
+          "order": 4,
+          "pattern": "elbow-flexion",
+          "defaultExerciseId": "incline-dumbbell-curl",
+          "sets": 2,
+          "repMin": 10,
+          "repMax": 15,
+          "restSec": 60
+        },
+        {
+          "order": 5,
+          "pattern": "elbow-flexion",
+          "defaultExerciseId": "dumbbell-hammer-curl",
+          "sets": 2,
+          "repMin": 10,
+          "repMax": 15,
+          "restSec": 60
+        },
+        {
+          "order": 6,
+          "pattern": "core",
+          "defaultExerciseId": "cable-crunch",
+          "sets": 2,
+          "repMin": 10,
+          "repMax": 15,
+          "restSec": 60
+        }
+      ]
+    },
+    {
+      "id": "legs-b",
+      "name": "Legs B",
+      "focus": "Hypertrophy-leaning legs: quads, glutes, hamstrings, calves",
+      "slots": [
+        {
+          "order": 1,
+          "pattern": "squat",
+          "defaultExerciseId": "hack-squat",
+          "sets": 3,
+          "repMin": 8,
+          "repMax": 12,
+          "restSec": 120
+        },
+        {
+          "order": 2,
+          "pattern": "hip-thrust",
+          "defaultExerciseId": "barbell-hip-thrust",
+          "sets": 3,
+          "repMin": 8,
+          "repMax": 12,
+          "restSec": 120
+        },
+        {
+          "order": 3,
+          "pattern": "lunge-single-leg",
+          "defaultExerciseId": "bulgarian-split-squat",
+          "sets": 2,
+          "repMin": 8,
+          "repMax": 12,
+          "restSec": 90
+        },
+        {
+          "order": 4,
+          "pattern": "knee-extension",
+          "defaultExerciseId": "leg-extension",
+          "sets": 2,
+          "repMin": 10,
+          "repMax": 15,
+          "restSec": 75
+        },
+        {
+          "order": 5,
+          "pattern": "knee-flexion",
+          "defaultExerciseId": "seated-leg-curl",
+          "sets": 3,
+          "repMin": 10,
+          "repMax": 15,
+          "restSec": 75
+        },
+        {
+          "order": 6,
+          "pattern": "calf-raise",
+          "defaultExerciseId": "seated-calf-raise",
+          "sets": 4,
+          "repMin": 10,
+          "repMax": 15,
+          "restSec": 60
+        }
+      ]
+    }
+  ],
+  "finisher": {
+    "optional": true,
+    "pattern": "cardio-warmup",
+    "defaultExerciseId": "incline-treadmill",
+    "defaultDurationMin": 15,
+    "minDurationMin": 10,
+    "maxDurationMin": 20,
+    "intensity": "zone-2",
+    "effortNote": "Zone 2 / easy aerobic: conversational pace, you can speak in full sentences; roughly 60-70% of max heart rate, RPE 3-4 out of 10. It should not leave you tired for the next session.",
+    "appliesTo": "all-days",
+    "placement": "after-lifting"
+  },
+  "activity": {
+    "dailyStepTarget": 8000,
+    "stepTargetRange": "7000-10000",
+    "note": "Daily steps from all walking (phone/watch count). 8000 is the default target; 7000-10000 is the working range. More steps raise daily energy expenditure without taxing lifting recovery, and higher daily step counts are associated with lower all-cause mortality (Paluch et al., 2022; benefit levels off around 8000-10000 steps/day in adults under 60). Keep steps roughly consistent day to day so the bodyweight trend is easy to read."
+  },
+  "goal": {
+    "type": "fat-loss",
+    "targetLossPctBodyweightPerWeek": {
+      "min": 0.5,
+      "max": 1.0
+    },
+    "proteinGPerLbGoalBodyweight": {
+      "min": 0.7,
+      "max": 1.0
+    }
+  },
+  "bodyweightLog": {
+    "recommendedEntriesPerWeek": "3-7",
+    "trendWindowDays": 7
+  }
+}
