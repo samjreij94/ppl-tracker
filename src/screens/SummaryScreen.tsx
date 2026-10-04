@@ -1,5 +1,5 @@
 import { IconTrophy } from '../components/Icons';
-import { CARDIO_LABEL, fmtVolume, type SummaryVM, type Unit } from '../ui/types';
+import { cardioLabel, fmtVolume, type SummaryVM, type Unit } from '../ui/types';
 
 export function SummaryScreen({ summary, unit, onDone }: { summary: SummaryVM; unit: Unit; onDone: () => void }) {
   return (
@@ -16,7 +16,7 @@ export function SummaryScreen({ summary, unit, onDone }: { summary: SummaryVM; u
       {summary.cardio && (
         <div className="card" style={{ marginTop: 12 }}>
           <div className="eyebrow">Cardio</div>
-          <div style={{ fontWeight: 700 }}>{CARDIO_LABEL[summary.cardio.kind]} · {summary.cardio.minutes} min {summary.cardio.done ? '✓' : '(skipped)'}</div>
+          <div style={{ fontWeight: 700 }}>{cardioLabel(summary.cardio.kind, summary.cardio.name)} · {summary.cardio.minutes} min {summary.cardio.done ? '✓' : '(skipped)'}</div>
         </div>
       )}
       <h2 className="section">Personal records</h2>

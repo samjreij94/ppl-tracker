@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { LineChart } from '../components/LineChart';
 import { IconTrophy } from '../components/Icons';
-import { CARDIO_LABEL, fmtNum, fmtVolume, type HistoryItem, type Metric, type SeriesPoint, type Unit } from '../ui/types';
+import { cardioLabel, fmtNum, fmtVolume, type HistoryItem, type Metric, type SeriesPoint, type Unit } from '../ui/types';
 
 interface Props {
   unit: Unit;
@@ -73,7 +73,7 @@ export function ProgressScreen({ unit, history, exercises, selectedId, series, m
                 <div className="d">{h.dayName} <span className="dim" style={{ fontWeight: 500 }}>· {new Date(h.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</span></div>
                 <div className="dim num" style={{ fontSize: 14 }}>
                   {h.sets} sets · {fmtVolume(h.volume)} {unit}
-                  {h.cardio ? ` · ${CARDIO_LABEL[h.cardio.kind]} ${h.cardio.minutes}m` : ''}
+                  {h.cardio ? ` · ${cardioLabel(h.cardio.kind, h.cardio.name)} ${h.cardio.minutes}m` : ''}
                 </div>
               </div>
               {h.prs > 0 && <span className="pill pill-pr"><IconTrophy width={14} height={14} />{h.prs}</span>}

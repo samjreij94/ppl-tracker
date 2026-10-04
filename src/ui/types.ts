@@ -14,8 +14,12 @@ export const CARDIO_LABEL: Record<CardioKind, string> = {
   peloton: 'Peloton',
 };
 
+export const cardioLabel = (kind: string, name?: string) => CARDIO_LABEL[kind as CardioKind] ?? name ?? kind;
+
 export interface CardioVM {
-  kind: CardioKind;
+  /** Cardio exercise id (one of CardioKind, or a custom cardio id). */
+  kind: CardioKind | (string & {});
+  name?: string;
   minutes: number;
   incline?: number; // %
   speed?: number; // mph or km/h
@@ -42,6 +46,7 @@ export interface ExerciseVM {
   lastSets: LastSet[];
   hint?: string;
   swapped?: boolean;
+  restSec?: number;
   sets: SetVM[];
 }
 
@@ -49,8 +54,20 @@ export interface TodayVM {
   dayName: string; // "Push A"
   dayLabel?: string; // "Day 1 of 6"
   cardio: CardioVM;
+  /** False when cardio warm-up is disabled in settings. */
+  hasCardio?: boolean;
   exercises: ExerciseVM[];
 }
+
+export interface ActiveVM {
+  sessionId: string;
+  dayName: string;
+  startedAt: number;
+  cardio: CardioVM | null;
+  exercises: ExerciseVM[];
+}
+
+export interface PrHit { name: string; text: string }
 
 export interface SwapOption { exerciseId: string; name: string; note?: string }
 
@@ -61,7 +78,7 @@ export interface HistoryItem {
   sets: number;
   volume: number;
   prs: number;
-  cardio?: { kind: CardioKind; minutes: number };
+  cardio?: { kind: string; name?: string; minutes: number; done: boolean };
   durationMin?: number;
 }
 
@@ -73,7 +90,7 @@ export interface SummaryVM {
   setsDone: number;
   volume: number;
   prs: { name: string; text: string }[];
-  cardio?: { kind: CardioKind; minutes: number; done: boolean };
+  cardio?: { kind: string; name?: string; minutes: number; done: boolean };
 }
 
 export interface SettingsVM {

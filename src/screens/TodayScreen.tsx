@@ -1,5 +1,5 @@
 import { cardioSummary } from '../components/CardioCard';
-import { CARDIO_LABEL, fmtSet, type TodayVM, type Unit } from '../ui/types';
+import { cardioLabel, fmtSet, type TodayVM, type Unit } from '../ui/types';
 
 interface Props {
   today: TodayVM | null;
@@ -23,7 +23,7 @@ export function TodayScreen({ today, unit, resuming, onStart }: Props) {
       <div className="stack">
         <div className="card ex-card cardio-preview" data-testid="today-cardio">
           <div className="eyebrow">Cardio warm-up</div>
-          <div className="name">Cardio · {CARDIO_LABEL[today.cardio.kind]} · {today.cardio.minutes} min</div>
+          <div className="name">Cardio · {cardioLabel(today.cardio.kind, today.cardio.name)} · {today.cardio.minutes} min</div>
           {(today.cardio.incline || today.cardio.speed || today.cardio.output || today.cardio.calories) ? (
             <div className="meta num"><span className="last">Last: {cardioSummary(today.cardio, unit)}</span></div>
           ) : null}

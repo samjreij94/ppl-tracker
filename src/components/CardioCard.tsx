@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Stepper } from './Stepper';
 import { IconCheck } from './Icons';
-import { CARDIO_LABEL, fmtNum, type CardioKind, type CardioVM, type Unit } from '../ui/types';
+import { cardioLabel, fmtNum, type CardioKind, type CardioVM, type Unit } from '../ui/types';
 
 const KINDS: { id: CardioKind; short: string }[] = [
   { id: 'incline-treadmill', short: 'Incline' },
@@ -73,7 +73,7 @@ export function CardioCard({ cardio, unit, timer, onTimer, onChange, onToggleDon
           <div className={`cardio-check${cardio.done ? ' on' : ''}`} aria-hidden="true"><IconCheck /></div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="eyebrow">Cardio warm-up</div>
-            <div className="name">{CARDIO_LABEL[cardio.kind]}</div>
+            <div className="name">{cardioLabel(cardio.kind, cardio.name)}</div>
             <div className="dim num" style={{ fontSize: 14 }}>{cardioSummary(cardio, unit)}</div>
           </div>
           <button className="btn btn-sm" onClick={() => setExpanded(true)}>Edit</button>
@@ -87,7 +87,7 @@ export function CardioCard({ cardio, unit, timer, onTimer, onChange, onToggleDon
       <div className="row" style={{ marginBottom: 10 }}>
         <div style={{ flex: 1 }}>
           <div className="eyebrow">Cardio warm-up</div>
-          <div className="name">{CARDIO_LABEL[cardio.kind]}</div>
+          <div className="name">{cardioLabel(cardio.kind, cardio.name)}</div>
         </div>
         {cardio.done && <button className="btn btn-sm" onClick={() => setExpanded(false)}>Collapse</button>}
       </div>
