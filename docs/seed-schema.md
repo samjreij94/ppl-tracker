@@ -26,6 +26,11 @@ to `research/exercises.json` flow through on the next dev reload / build.
 | `schedules['six-day']`, `schedules['three-day'].rotation` | `Program.rotations[6]`, `Program.rotations[3]` |
 | `warmup.defaultExerciseId` (`incline-treadmill`) | `state.warmupExerciseId`; cardio slot (`id: 'cardio-warmup'`) auto-inserted first on every day |
 | cardio exercises (`kind:'cardio'`, `pattern:'cardio-warmup'`, `defaultDurationMin`, `progressionCategory:null`) | `CardioExercise` (no sets/progression) |
+| `progressionRules.cutAdjustments` `{appliesWhenGoalType, maintainCountsAsSuccess, stallConsecutiveSessions:3, stallLoadReductionPct:5}` | `state.progressionRules.cut` (used when `settings.goal.type` matches) |
+| `goal` `{type, targetLossPctBodyweightPerWeek{min,max}, proteinGPerLbGoalBodyweight}` | default `Settings.goal` |
+| `finisher` `{optional, pattern, defaultExerciseId, defaultDurationMin, minDurationMin, maxDurationMin, intensity, effortNote, placement}` | `state.finisher` (`FinisherConfig`); optional cardio entry after lifting (slot id `cardio-finisher`) |
+| `activity` `{dailyStepTarget, stepTargetRange:"7000-10000", note}` | `state.activity` (`stepTargetRange` parsed to `{min,max}`) |
+| `bodyweightLog` `{recommendedEntriesPerWeek:"3-7", trendWindowDays}` | `state.bodyweightLog` (range parsed to `{min,max}`) |
 | strength exercise default rep range (not in seed) | derived from the first slot that uses the exercise or its pattern |
 
 History is keyed by the actually performed `exerciseId`; permanent swaps are keyed by slot id

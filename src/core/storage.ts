@@ -8,6 +8,7 @@
  *   `v1/customExercises` → Exercise[]
  *   `v1/sessions` → WorkoutSession[] (finished)
  *   `v1/active` → WorkoutSession | null
+ *   `v1/bodyweight` → BodyweightEntry[] (sorted by date, one per date)
  * Weights are stored AS ENTERED with `WorkoutSession.unit` (not normalized).
  */
 import { createStore, del, get, set } from 'idb-keyval';
@@ -24,6 +25,7 @@ export const STORAGE_KEYS = {
   customExercises: 'v1/customExercises',
   sessions: 'v1/sessions',
   active: 'v1/active',
+  bodyweight: 'v1/bodyweight',
 } as const;
 
 /** IndexedDB-backed storage (idb-keyval). */

@@ -2,7 +2,7 @@
  * Export / import of user data (settings, custom exercises, sessions).
  * The seed itself is never exported.
  */
-import type { Exercise, Settings, WorkoutSession } from './types';
+import type { BodyweightEntry, Exercise, Settings, WorkoutSession } from './types';
 
 export const EXPORT_VERSION = 1;
 
@@ -16,6 +16,8 @@ export interface ExportFile {
   customExercises: Exercise[];
   sessions: WorkoutSession[];
   active: WorkoutSession | null;
+  /** Optional on import (older exports). */
+  bodyweight: BodyweightEntry[];
 }
 
 /** Result of `importJSON`. On any error nothing is changed (`ok: false`). */
@@ -24,7 +26,7 @@ export interface ImportResult {
   errors: string[];
   warnings: string[];
   /** Present when ok. */
-  counts?: { sessions: number; customExercises: number };
+  counts?: { sessions: number; customExercises: number; bodyweight: number };
 }
 
 type Obj = Record<string, unknown>;
@@ -87,6 +89,13 @@ export function validateExport(input: unknown): { file: ExportFile | null; error
     if (!isObj(e) || typeof e.id !== 'string' || typeof e.name !== 'string' || (e.kind !== 'strength' && e.kind !== 'cardio')) errors.push(`customExercises[${i}] invalid`);
   });
   if (raw.active != null) checkSession(raw.active, 'active', errors);
+  const bw = raw.bodyweight ?? [];
+  if (!Array.isArray(bw)) errors.push('bodyweight must be an array');
+  else bw.forEach((e, i) => {
+    if (!isObj(e) || typeof e.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(e.date) || typeof e.weight !== 'number' || !(e.weight > 0) || (e.unit !== 'lb' && e.unit !== 'kg')) {
+      errors.push(`bodyweight[${i}] invalid (need {date:'YYYY-MM-DD', weight>0, unit})`);
+    }
+  });
   if (errors.length) return { file: null, errors, warnings };
   return {
     file: {
@@ -97,6 +106,7 @@ export function validateExport(input: unknown): { file: ExportFile | null; error
       customExercises: custom as Exercise[],
       sessions: raw.sessions as WorkoutSession[],
       active: (raw.active as WorkoutSession | null) ?? null,
+      bodyweight: bw as BodyweightEntry[],
     },
     errors,
     warnings,

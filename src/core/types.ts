@@ -123,6 +123,11 @@ export type Exercise = StrengthExercise | CardioExercise;
 export const CARDIO_GROUP_ID = 'cardio-warmup';
 /** Slot id of the cardio warm-up slot. It is the SAME on every day so a permanent swap applies everywhere. */
 export const CARDIO_SLOT_ID = 'cardio-warmup';
+/** Slot id of the optional cardio finisher (after lifting). Same on every day. */
+export const FINISHER_SLOT_ID = 'cardio-finisher';
+
+/** Which cardio entry: the auto warm-up (first) or the optional finisher (last). */
+export type CardioRole = 'warmup' | 'finisher';
 
 /** Substitution group (seed: `patterns[]`): a set of interchangeable exercises. */
 export interface SubstitutionGroup {
@@ -150,13 +155,14 @@ export interface Slot {
   order?: number;
 }
 
-/** The auto-inserted cardio warm-up slot (never stored in `ProgramDay.slots`). */
+/** A cardio slot: the auto warm-up or the optional finisher (never stored in `ProgramDay.slots`). */
 export interface CardioSlot {
-  id: typeof CARDIO_SLOT_ID;
+  id: typeof CARDIO_SLOT_ID | typeof FINISHER_SLOT_ID;
   kind: 'cardio';
+  role: CardioRole;
   exerciseId: string;
   durationMin: number;
-  substitutionGroup: typeof CARDIO_GROUP_ID;
+  substitutionGroup: string;
 }
 
 export type AnySlot = Slot | CardioSlot;
@@ -224,14 +230,30 @@ export interface StrengthEntry {
   restSec: number;
 }
 
-/** The cardio warm-up performed in a session (always entry index 0 when cardio is enabled). */
+/**
+ * A cardio entry: `warmup` (entry 0 when enabled) or `finisher` (last entry,
+ * optional, added via `addFinisher`). Counts in cardio history only — never in strength stats.
+ */
 export interface CardioEntry {
   kind: 'cardio';
-  slotId: typeof CARDIO_SLOT_ID;
+  role: CardioRole;
+  slotId: typeof CARDIO_SLOT_ID | typeof FINISHER_SLOT_ID;
   exerciseId: string;
   durationMin: number;
   done: boolean;
   timestamp?: string;
+  /** Optional machine readouts (persisted + exported; not used for any stats yet). */
+  metrics?: CardioMetrics;
+}
+
+/** Optional cardio readouts. `speed` is mph when the session unit is lb, km/h when kg. */
+export interface CardioMetrics {
+  /** Treadmill incline, % */
+  incline?: number;
+  speed?: number;
+  calories?: number;
+  /** Peloton output, kJ */
+  output?: number;
 }
 
 export type SessionEntry = StrengthEntry | CardioEntry;
@@ -260,15 +282,105 @@ export interface CardioSettings {
   defaultDurationMin: number;
 }
 
+/** Training goal (seed `goal`). Only `fat-loss` exists today. */
+export type GoalType = 'fat-loss' | (string & {});
+
+export interface Goal {
+  type: GoalType;
+  /** Target weekly loss, % of bodyweight (e.g. 0.5–1.0). */
+  targetLossPctBodyweightPerWeek: { min: number; max: number };
+  /** Protein target, g per lb of goal bodyweight (e.g. 0.7–1.0). */
+  proteinGPerLbGoalBodyweight?: { min: number; max: number };
+}
+
+/** Optional zone-2 finisher config (seed `finisher`). */
+export interface FinisherConfig {
+  optional: boolean;
+  /** Swap group (`cardio-warmup`: the same 3 cardio exercises). */
+  pattern: string;
+  defaultExerciseId: string;
+  /** 15. The exercise's own defaultDurationMin (warm-up value) is ignored for finishers. */
+  defaultDurationMin: number;
+  minDurationMin: number;
+  maxDurationMin: number;
+  /** e.g. `zone-2` */
+  intensity: string;
+  /** Intensity cue to display. */
+  effortNote?: string;
+  placement: 'after-lifting';
+}
+
+/** Daily activity guidance (seed `activity`). Display only. */
+export interface ActivityConfig {
+  dailyStepTarget: number;
+  /** Parsed from `"7000-10000"`. */
+  stepTargetRange: { min: number; max: number };
+  note?: string;
+}
+
+/** Bodyweight-log config (seed `bodyweightLog`). */
+export interface BodyweightLogConfig {
+  /** Parsed from `"3-7"`. */
+  recommendedEntriesPerWeek: { min: number; max: number };
+  /** 7 */
+  trendWindowDays: number;
+}
+
+/** One stored bodyweight reading (one per local date; logging the same date replaces it). */
+export interface BodyweightEntry {
+  /** Local date `YYYY-MM-DD`. */
+  date: string;
+  /** > 0, in `unit`. */
+  weight: number;
+  unit: Unit;
+  note?: string;
+}
+
+/** One point of the bodyweight trend (display unit). */
+export interface BodyweightTrendPoint {
+  date: string;
+  /** The reading, converted to the display unit. */
+  weight: number;
+  /** Mean of readings in the `trendWindowDays` window ending on `date`. */
+  avg: number;
+}
+
+/** Status of the weekly loss rate vs `goal.targetLossPctBodyweightPerWeek`. */
+export type BodyweightTrendStatus = 'tooSlow' | 'onTrack' | 'tooFast' | 'insufficientData';
+
+/** Result of `getBodyweightTrend` (display unit). */
+export interface BodyweightTrend {
+  unit: Unit;
+  /** Oldest → newest, one per entry. */
+  points: BodyweightTrendPoint[];
+  /** Window average ending at the latest entry. */
+  currentAvg: number | null;
+  /** Window average ending `trendWindowDays` before the latest entry. */
+  previousAvg: number | null;
+  /**
+   * Weekly rate from the two window averages. POSITIVE = losing.
+   * lossPctPerWeek = (previousAvg − currentAvg) / previousAvg × 100 (research/SCHEMA.md).
+   */
+  weeklyRate: { lossPerWeek: number; lossPctPerWeek: number } | null;
+  status: BodyweightTrendStatus;
+  target: { min: number; max: number };
+  /** Entries in the last `trendWindowDays` days (compare with recommendedEntriesPerWeek). */
+  entriesThisWindow: number;
+}
+
 /** User settings. */
 export interface Settings {
   unit: Unit;
   defaultRestSec: number;
   schedule: Schedule;
   increments: Increments;
-  /** slotId → exerciseId. Use `CARDIO_SLOT_ID` to change the cardio warm-up on every day. */
+  /** slotId → exerciseId. Use `CARDIO_SLOT_ID` / `FINISHER_SLOT_ID` to change the warm-up / finisher on every day. */
   permanentSwaps: Record<string, string>;
   cardio: CardioSettings;
+  /** Optional finisher: auto-add to new sessions (default false; user can still add/skip per session). */
+  finisher: { autoAdd: boolean };
+  /** Active goal (defaults to the seed's). Drives the cut progression rules and the bodyweight trend status. */
+  goal: Goal;
 }
 
 /** PR kinds. */
@@ -310,13 +422,16 @@ export interface ExerciseSeriesPoint {
 }
 
 /**
- * - `increase` — every working set hit repRange.max last time → add the increment
- * - `addReps`  — all sets ≥ repRange.min but not all at max → same load, more reps
- * - `hold`     — a set fell below repRange.min once (or no history) → repeat
- * - `reduce`   — stall: a set fell below repRange.min at the same load in
- *                `stallConsecutiveSessions` (2) consecutive sessions → −`stallLoadReductionPct` (10%), rounded
+ * Double progression (research/SCHEMA.md progressionRules + cutAdjustments):
+ * - `increase`   — every working set hit repRange.max last time → add the category increment
+ * - `addReps`    — all sets ≥ repRange.min, not all at max → same load, more reps
+ * - `hold`       — no history, a single bad session, a cut "maintained" session, or
+ *                  "hold one more session" before cutting load
+ * - `dropSet`    — cut only: stall reached → drop one set on this slot (never below 2) before cutting load
+ * - `reduceLoad` — stall: any set < repRange.min at the same load for `stallConsecutiveSessions`
+ *                  sessions (base 2 → −10%; cut 3 → first hold/dropSet, then −5%), rounded to the increment
  */
-export type ProgressionAction = 'increase' | 'hold' | 'addReps' | 'reduce';
+export type ProgressionAction = 'increase' | 'addReps' | 'hold' | 'dropSet' | 'reduceLoad';
 
 /** Double-progression hint for the next session (display unit). */
 export interface ProgressionHint {
@@ -326,16 +441,35 @@ export interface ProgressionHint {
   newWeight?: number;
   /** The increment used (increase only). */
   increment?: number;
-  /** Target reps per set for next time (addReps/hold). */
+  /** Target reps per set for next time. */
   targetReps?: number;
+  /** dropSet only: suggested set count (≥ 2). */
+  newSets?: number;
+  /** Which rule set produced this hint. */
+  rules: 'base' | 'cut';
   /** Human text, e.g. "add 5 lb", "add reps: aim for 10", "hold 135 lb", "stalled: drop to 120 lb". */
   message: string;
+}
+
+/** Cut overrides (seed `progressionRules.cutAdjustments`). */
+export interface CutAdjustments {
+  /** Applies when `settings.goal.type` equals this (`fat-loss`). */
+  appliesWhenGoalType: GoalType;
+  /** Same load & reps as last time = success, not a stall. */
+  maintainCountsAsSuccess: boolean;
+  /** 3 */
+  stallConsecutiveSessions: number;
+  /** 5 */
+  stallLoadReductionPct: number;
 }
 
 /** Progression parameters (from the seed's `progressionRules`). */
 export interface ProgressionRules {
   stallConsecutiveSessions: number;
   stallLoadReductionPct: number;
+  /** Never suggest fewer sets than this (2). */
+  minSetsPerSlot: number;
+  cut?: CutAdjustments;
   deload: { setReductionPct: number; loadReductionPct: number };
   /** e.g. {compound: '1-3', isolation: '0-2'} */
   targetRir: Partial<Record<RirClass, string>>;

@@ -5,16 +5,19 @@
 import { bestE1rm, convertWeight, doneSets, epley, roundToIncrement, topSet, volume } from './math';
 import type {
   ActiveEntryView,
+  CardioHistoryItem,
   CoreState,
   DaySummary,
   LastPerformance,
   TodayCardioSlot,
+  TodayFinisher,
   TodaySlot,
   TodayStrengthSlot,
   TodayView,
 } from './state';
 import type {
   CardioExercise,
+  CardioRole,
   CardioSlot,
   Exercise,
   ExerciseSeriesPoint,
@@ -31,7 +34,7 @@ import type {
   Unit,
   WorkoutSession,
 } from './types';
-import { CARDIO_GROUP_ID, CARDIO_SLOT_ID } from './types';
+import { CARDIO_GROUP_ID, CARDIO_SLOT_ID, FINISHER_SLOT_ID } from './types';
 
 const EPS = 1e-6;
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -132,14 +135,20 @@ export function prefillFromLast(
 /* ------------------------------------------------------------------ progression */
 
 /**
- * Double progression (seed progressionRules):
- * - no history → `hold` ("first time: pick a weight for ~min+2 reps")
- * - last session: ≥ `targetSets` done sets and EVERY one ≥ repRange.max → `increase` by `increment`
- * - any set < repRange.min at the same load in the last `stallConsecutiveSessions` sessions → `reduce` by `stallLoadReductionPct`
- * - any set < repRange.min (once) → `hold`
- * - otherwise → `addReps` (target = lowest set's reps + 1, capped at max)
+ * Double progression (research/SCHEMA.md progressionRules; cut overrides when
+ * `goalType === rules.cut.appliesWhenGoalType`). `history` is newest first, in `unit`.
+ * Working weight = last top-set weight.
  *
- * `history` is newest first, in `unit` (see `exerciseHistory`). Working weight = last top-set weight.
+ * - no history → `hold` ("first time: pick a weight for ~min+2 reps")
+ * - last session: ≥ targetSets sets at the working weight, EVERY one ≥ max → `increase`
+ * - stall streak k = consecutive newest sessions with a set < min at the same load
+ *   (cut + maintainCountsAsSuccess: a session matching the previous one's load AND reps ends the streak = success)
+ *   - base: k ≥ N(2) → `reduceLoad` −10%; 0 < k < N → `hold`
+ *   - cut:  k < N(3) → `hold`; k = N → `dropSet` (if targetSets > 2) else `hold` ("hold one more session");
+ *           k > N → `reduceLoad` −5%
+ * - otherwise → `addReps` (target = lowest working set + 1, capped at max)
+ *
+ * Phase-1 note: minimal implementation; edge cases are refined in phase 2.
  */
 export function suggestProgression(args: {
   exerciseId: string;
@@ -149,44 +158,60 @@ export function suggestProgression(args: {
   unit: Unit;
   increment: number;
   rules: ProgressionRules;
+  /** `settings.goal.type`; selects the cut rules when it matches. */
+  goalType?: string;
 }): ProgressionHint {
-  const { exerciseId, repRange, targetSets, history, unit, increment, rules } = args;
+  const { exerciseId, repRange, targetSets, history, unit, increment, rules, goalType } = args;
+  const cut = rules.cut && goalType === rules.cut.appliesWhenGoalType ? rules.cut : undefined;
+  const tag: ProgressionHint['rules'] = cut ? 'cut' : 'base';
+  const N = Math.max(1, cut?.stallConsecutiveSessions ?? rules.stallConsecutiveSessions);
+  const pct = cut?.stallLoadReductionPct ?? rules.stallLoadReductionPct;
   const last = history[0];
   if (!last || !last.sets.length) {
-    return {
-      exerciseId,
-      action: 'hold',
-      targetReps: repRange.min,
-      message: `first time: pick a weight you can do for ~${repRange.min + 2} reps`,
-    };
+    return { exerciseId, action: 'hold', targetReps: repRange.min, rules: tag, message: `first time: pick a weight you can do for ~${repRange.min + 2} reps` };
   }
   const w = topSet(last.sets)?.weight ?? 0;
-  const working = last.sets.filter((s) => Math.abs(s.weight - w) < 0.01);
-  const allMax = working.length >= Math.max(1, targetSets) && working.every((s) => s.reps >= repRange.max);
-  if (allMax) {
-    const newWeight = r2(w + increment);
-    return { exerciseId, action: 'increase', newWeight, increment, targetReps: repRange.min, message: `add ${increment} ${unit}` };
+  const atW = (sets: SetLog[]) => sets.filter((s) => Math.abs(s.weight - w) < 0.01);
+  const working = atW(last.sets);
+  if (working.length >= Math.max(1, targetSets) && working.every((s) => s.reps >= repRange.max)) {
+    return { exerciseId, action: 'increase', newWeight: r2(w + increment), increment, targetReps: repRange.min, rules: tag, message: `add ${increment} ${unit}` };
   }
-  const belowMin = (sets: SetLog[], at: number) =>
-    sets.some((s) => Math.abs(s.weight - at) < 0.01 && s.reps < repRange.min);
-  if (belowMin(last.sets, w)) {
-    const n = Math.max(1, rules.stallConsecutiveSessions);
-    const stalled = history.length >= n && history.slice(0, n).every((h) => belowMin(h.sets, w));
-    if (stalled) {
-      const newWeight = roundToIncrement(w * (1 - rules.stallLoadReductionPct / 100), increment, 'nearest');
-      return {
-        exerciseId,
-        action: 'reduce',
-        newWeight,
-        targetReps: repRange.min,
-        message: `stalled ${n}×: drop ${rules.stallLoadReductionPct}% to ${newWeight} ${unit}`,
-      };
+  const belowMin = (sets: SetLog[]) => atW(sets).some((s) => s.reps < repRange.min);
+  const sameAsPrev = (a: SetLog[], b: SetLog[] | undefined) => {
+    if (!b) return false;
+    const x = atW(a).map((s) => s.reps).join(',');
+    const y = atW(b).map((s) => s.reps).join(',');
+    return x !== '' && x === y;
+  };
+  let k = 0;
+  for (let i = 0; i < history.length; i++) {
+    if (!belowMin(history[i].sets)) break;
+    if (cut?.maintainCountsAsSuccess && sameAsPrev(history[i].sets, history[i + 1]?.sets)) break;
+    k++;
+  }
+  if (k > 0) {
+    const reduce = (): ProgressionHint => {
+      const newWeight = roundToIncrement(w * (1 - pct / 100), increment, 'nearest');
+      return { exerciseId, action: 'reduceLoad', newWeight, targetReps: repRange.min, rules: tag, message: `stalled: drop ~${pct}% to ${newWeight} ${unit}` };
+    };
+    if (!cut) return k >= N ? reduce() : hold();
+    if (k < N) return hold();
+    if (k === N) {
+      return targetSets > rules.minSetsPerSlot
+        ? { exerciseId, action: 'dropSet', newWeight: w, newSets: targetSets - 1, targetReps: repRange.min, rules: tag, message: `stalled on a cut: drop one set (${targetSets - 1} sets) at ${w} ${unit}` }
+        : { ...hold(), message: `stalled on a cut: hold ${w} ${unit} one more session` };
     }
-    return { exerciseId, action: 'hold', newWeight: w, targetReps: repRange.min, message: `hold ${w} ${unit}, aim for ${repRange.min}+ reps` };
+    return reduce();
   }
-  const minReps = Math.min(...working.map((s) => s.reps));
-  const targetReps = Math.min(repRange.max, minReps + 1);
-  return { exerciseId, action: 'addReps', newWeight: w, targetReps, message: `add reps at ${w} ${unit}: aim for ${targetReps}` };
+  if (cut?.maintainCountsAsSuccess && sameAsPrev(last.sets, history[1]?.sets)) {
+    return { ...hold(), message: `maintained ${w} ${unit} — that's a win on a cut; aim for +1 rep` };
+  }
+  const targetReps = Math.min(repRange.max, Math.min(...working.map((s) => s.reps)) + 1);
+  return { exerciseId, action: 'addReps', newWeight: w, targetReps, rules: tag, message: `add reps at ${w} ${unit}: aim for ${targetReps}` };
+
+  function hold(): ProgressionHint {
+    return { exerciseId, action: 'hold', newWeight: w, targetReps: repRange.min, rules: tag, message: `hold ${w} ${unit}, aim for ${repRange.min}+ reps` };
+  }
 }
 
 /** Progression hint for an exercise (optionally with a slot's rep range / sets). Null for cardio/unknown. */
@@ -205,6 +230,7 @@ export function getProgression(
     unit: state.settings.unit,
     increment: getIncrement(ex, state.settings),
     rules: state.progressionRules,
+    goalType: state.settings.goal.type,
   });
 }
 
@@ -319,6 +345,9 @@ export function getSwaps(state: CoreState, exerciseId: string, slotId?: string):
   if (slotId === CARDIO_SLOT_ID) {
     groupId = CARDIO_GROUP_ID;
     programmed = state.warmupExerciseId;
+  } else if (slotId === FINISHER_SLOT_ID) {
+    groupId = state.finisher.pattern;
+    programmed = state.finisher.defaultExerciseId;
   } else if (slotId) {
     const slot = state.program.days.flatMap((d) => d.slots).find((s) => s.id === slotId);
     if (slot) {
@@ -334,27 +363,63 @@ export function getSwaps(state: CoreState, exerciseId: string, slotId?: string):
 
 /* ------------------------------------------------------------------ today */
 
-/** The cardio slot for today (after permanent swap), or null if cardio is disabled. */
+/** The warm-up cardio slot (after permanent swap), or null if cardio is disabled. */
 export function cardioSlot(state: CoreState): { slot: CardioSlot; exercise: CardioExercise } | null {
   if (!state.settings.cardio.enabled) return null;
   const id = resolveSlotExerciseId(state, CARDIO_SLOT_ID, state.warmupExerciseId);
   const ex = state.exercises[id];
   if (!ex || ex.kind !== 'cardio') return null;
-  const last = lastCardio(state, ex.id);
+  const last = getCardioHistory(state, { exerciseId: ex.id, role: 'warmup' })[0];
   const durationMin = last?.durationMin ?? ex.defaultDurationMin ?? state.settings.cardio.defaultDurationMin;
   return {
-    slot: { id: CARDIO_SLOT_ID, kind: 'cardio', exerciseId: ex.id, durationMin, substitutionGroup: CARDIO_GROUP_ID },
+    slot: { id: CARDIO_SLOT_ID, kind: 'cardio', role: 'warmup', exerciseId: ex.id, durationMin, substitutionGroup: CARDIO_GROUP_ID },
     exercise: ex,
   };
 }
 
-function lastCardio(state: CoreState, exerciseId: string): { sessionId: string; date: string; durationMin: number } | null {
+/** Done cardio entries (warm-ups and finishers), newest first. */
+export function getCardioHistory(state: CoreState, opts: { exerciseId?: string; role?: CardioRole } = {}): CardioHistoryItem[] {
+  const out: CardioHistoryItem[] = [];
   for (let i = state.sessions.length - 1; i >= 0; i--) {
     const s = state.sessions[i];
-    const e = s.entries.find((x) => x.kind === 'cardio' && x.exerciseId === exerciseId && x.done);
-    if (e && e.kind === 'cardio') return { sessionId: s.id, date: s.startedAt, durationMin: e.durationMin };
+    for (const e of s.entries) {
+      if (e.kind !== 'cardio' || !e.done) continue;
+      const role: CardioRole = e.role ?? 'warmup';
+      if (opts.role && role !== opts.role) continue;
+      if (opts.exerciseId && e.exerciseId !== opts.exerciseId) continue;
+      out.push({ sessionId: s.id, date: s.startedAt, exerciseId: e.exerciseId, role, durationMin: e.durationMin, ...(e.metrics ? { metrics: e.metrics } : {}) });
+    }
   }
-  return null;
+  return out;
+}
+
+/**
+ * The optional finisher: exercise = permanent swap on `FINISHER_SLOT_ID`, else
+ * the last finisher's exercise, else `finisher.defaultExerciseId`; duration =
+ * last finisher's (clamped to min..max) else `finisher.defaultDurationMin`.
+ */
+export function finisherOffer(state: CoreState): TodayFinisher | null {
+  const f = state.finisher;
+  const last = getCardioHistory(state, { role: 'finisher' })[0] ?? null;
+  const swap = state.settings.permanentSwaps[FINISHER_SLOT_ID];
+  const candidates = [swap, last?.exerciseId, f.defaultExerciseId, state.warmupExerciseId];
+  const ex = candidates.map((id) => (id ? state.exercises[id] : undefined)).find((e): e is CardioExercise => e?.kind === 'cardio');
+  if (!ex) return null;
+  const clamp = (n: number) => Math.min(f.maxDurationMin, Math.max(f.minDurationMin, n));
+  const durationMin = clamp(last?.durationMin ?? f.defaultDurationMin);
+  return {
+    slot: { id: FINISHER_SLOT_ID, kind: 'cardio', role: 'finisher', exerciseId: ex.id, durationMin, substitutionGroup: f.pattern },
+    exercise: ex,
+    programmedExerciseId: f.defaultExerciseId,
+    swapped: ex.id !== f.defaultExerciseId,
+    durationMin,
+    minDurationMin: f.minDurationMin,
+    maxDurationMin: f.maxDurationMin,
+    intensity: f.intensity,
+    effortNote: f.effortNote,
+    last,
+    autoAdd: state.settings.finisher.autoAdd,
+  };
 }
 
 /**
@@ -378,7 +443,7 @@ export function getToday(state: CoreState, dayId?: string): TodayView | null {
       programmedExerciseId: state.warmupExerciseId,
       swapped: c.exercise.id !== state.warmupExerciseId,
       durationMin: c.slot.durationMin,
-      last: lastCardio(state, c.exercise.id),
+      last: getCardioHistory(state, { exerciseId: c.exercise.id, role: 'warmup' })[0] ?? null,
     };
     slots.push(t);
   }
@@ -400,7 +465,7 @@ export function getToday(state: CoreState, dayId?: string): TodayView | null {
     slots.push(t);
   }
   const rot = state.program.rotations[state.settings.schedule];
-  return { day, rotationIndex: rot.indexOf(day.id), isNext: day.id === next, slots, activeSession: state.active };
+  return { day, rotationIndex: rot.indexOf(day.id), isNext: day.id === next, slots, finisher: finisherOffer(state), activeSession: state.active };
 }
 
 /* ------------------------------------------------------------------ active session view */
@@ -414,7 +479,11 @@ export function getActiveEntries(state: CoreState): ActiveEntryView[] {
     const exercise = state.exercises[entry.exerciseId];
     if (!exercise) return [];
     const programmedExerciseId =
-      entry.kind === 'cardio' ? state.warmupExerciseId : day?.slots.find((s) => s.id === entry.slotId)?.exerciseId ?? entry.exerciseId;
+      entry.kind === 'cardio'
+        ? entry.role === 'finisher'
+          ? state.finisher.defaultExerciseId
+          : state.warmupExerciseId
+        : day?.slots.find((s) => s.id === entry.slotId)?.exerciseId ?? entry.exerciseId;
     const strength = entry.kind === 'strength' ? (entry as StrengthEntry) : null;
     return [
       {

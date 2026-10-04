@@ -3,10 +3,21 @@
  * useSyncExternalStore) + actions. Every action updates state synchronously
  * and persists in the background (`flush()` awaits pending writes).
  */
-import { BUILTIN_CARDIO, BUILTIN_CARDIO_GROUP, DEFAULT_PROGRESSION_RULES, defaultSettings } from './defaults';
+import { bodyweightTrend, localDate } from './bodyweight';
+import {
+  BUILTIN_CARDIO,
+  BUILTIN_CARDIO_GROUP,
+  DEFAULT_ACTIVITY,
+  DEFAULT_BODYWEIGHT_LOG,
+  DEFAULT_FINISHER,
+  DEFAULT_GOAL,
+  DEFAULT_PROGRESSION_RULES,
+  defaultSettings,
+} from './defaults';
 import {
   cardioSlot,
   detectPRs,
+  finisherOffer,
   exerciseHistory,
   getToday,
   lastPerformance,
@@ -19,7 +30,11 @@ import type { CoreState } from './state';
 import { STORAGE_KEYS, type Storage } from './storage';
 import { EXPORT_VERSION, validateExport, type ExportFile, type ImportResult } from './transfer';
 import type {
+  BodyweightEntry,
+  BodyweightTrend,
   CardioEntry,
+  CardioMetrics,
+  CardioRole,
   Equipment,
   Exercise,
   ExerciseCategory,
@@ -34,7 +49,7 @@ import type {
   SubstitutionGroup,
   WorkoutSession,
 } from './types';
-import { CARDIO_GROUP_ID, CARDIO_SLOT_ID } from './types';
+import { CARDIO_GROUP_ID, CARDIO_SLOT_ID, FINISHER_SLOT_ID } from './types';
 
 /** Input for `addCustomExercise`. */
 export interface CustomExerciseInput {
@@ -60,10 +75,27 @@ export interface CustomExerciseInput {
 }
 
 /** Deep-partial settings patch for `updateSettings`. */
-export type SettingsPatch = Partial<Omit<Settings, 'increments' | 'cardio'>> & {
+export type SettingsPatch = Partial<Omit<Settings, 'increments' | 'cardio' | 'finisher' | 'goal'>> & {
   increments?: { [U in keyof Increments]?: Partial<Increments[U]> };
   cardio?: Partial<Settings['cardio']>;
+  finisher?: Partial<Settings['finisher']>;
+  goal?: Partial<Settings['goal']>;
 };
+
+/** Input for `logBodyweight`. `date` defaults to today (local), `unit` to settings.unit. */
+export interface BodyweightInput {
+  date?: string;
+  weight: number;
+  unit?: Settings['unit'];
+  note?: string;
+}
+
+/** Patch for `logCardio`. Finisher durations are clamped to finisher min..max. `metrics` are merged. */
+export interface CardioPatch {
+  durationMin?: number;
+  done?: boolean;
+  metrics?: CardioMetrics;
+}
 
 /** Patch for `logSet`. Marking `done: true` stamps `timestamp` (unless given). */
 export type SetPatch = Partial<SetLog>;
@@ -103,8 +135,19 @@ export interface Core {
   /** Append a set (copies the last set's weight/reps unless `init` given; `done: false`). Returns its index. */
   addSet(entryIdx: number, init?: Partial<SetLog>): number;
   removeSet(entryIdx: number, setIdx: number): void;
-  /** Update the cardio entry (duration and/or done). */
-  logCardio(entryIdx: number, patch: { durationMin?: number; done?: boolean }): void;
+  /**
+   * Update the warm-up or finisher entry of the active session. `which` is the
+   * role ('warmup' | 'finisher'); a number (entry index) is also accepted for
+   * compatibility. Throws if the entry is absent.
+   */
+  logCardio(which: CardioRole | number, patch: CardioPatch): void;
+  /**
+   * Add the optional finisher as the LAST entry (prefilled from the last finisher,
+   * see `finisherOffer`). No-op returning the existing index if already added.
+   */
+  addFinisher(opts?: { exerciseId?: string; durationMin?: number }): number;
+  /** Remove (skip) the finisher from the active session. */
+  removeFinisher(): void;
   /** Finish the active session (moves it to history). Returns null if none. */
   finishSession(): FinishResult | null;
   /** Drop the active session without saving. */
@@ -127,6 +170,12 @@ export interface Core {
   removeCustomExercise(exerciseId: string): void;
 
   updateSettings(patch: SettingsPatch): Settings;
+
+  /** Upsert one reading per local date (weight > 0). Returns the stored entry. */
+  logBodyweight(entry: BodyweightInput): BodyweightEntry;
+  deleteBodyweight(date: string): void;
+  /** 7-day moving-average trend + weekly loss rate vs goal (display unit). */
+  getBodyweightTrend(): BodyweightTrend;
 
   /** Serialize user data (pretty JSON string, `ExportFile`). */
   exportJSON(): string;
@@ -155,6 +204,8 @@ function mergeSettings(base: Settings, patch: SettingsPatch | undefined): Settin
       kg: { ...base.increments.kg, ...patch.increments?.kg },
     },
     cardio: { ...base.cardio, ...patch.cardio },
+    finisher: { ...base.finisher, ...patch.finisher },
+    goal: { ...base.goal, ...patch.goal },
     permanentSwaps: patch.permanentSwaps ?? base.permanentSwaps,
   };
 }
@@ -179,6 +230,7 @@ export function createCore(opts: CreateCoreOptions): Core {
   const baseSettings = defaultSettings({
     unit: seed?.unitDefault ?? 'lb',
     increments: structuredClone(seed?.increments ?? defaultSettings().increments),
+    goal: structuredClone(seed?.goal ?? DEFAULT_GOAL),
   });
 
   const compose = (custom: Exercise[]) => ({
@@ -194,6 +246,10 @@ export function createCore(opts: CreateCoreOptions): Core {
     program: seed?.program ?? { id: 'ppl', name: 'Push / Pull / Legs', days: [], rotations: { 3: [], 6: [] } },
     warmupExerciseId: seed?.warmupExerciseId ?? BUILTIN_CARDIO[0].id,
     progressionRules: seed?.progressionRules ?? DEFAULT_PROGRESSION_RULES,
+    finisher: seed?.finisher ?? DEFAULT_FINISHER,
+    activity: seed?.activity ?? DEFAULT_ACTIVITY,
+    bodyweightLog: seed?.bodyweightLog ?? DEFAULT_BODYWEIGHT_LOG,
+    bodyweight: [],
     sessions: [],
     active: null,
     settings: baseSettings,
@@ -210,6 +266,7 @@ export function createCore(opts: CreateCoreOptions): Core {
       customExercises: snap.customExercises,
       sessions: snap.sessions,
       active: snap.active,
+      bodyweight: snap.bodyweight,
     };
     writes = writes
       .then(() => Promise.all(keys.map((k) => opts.storage.set(STORAGE_KEYS[k], values[k]))))
@@ -240,6 +297,15 @@ export function createCore(opts: CreateCoreOptions): Core {
   });
   const prefillFor = (exerciseId: string, target: { sets: number; repRange: RepRange }) =>
     prefillFromLast(target, lastPerformance(state, exerciseId));
+  const clampFinisher = (n: number) => Math.min(state.finisher.maxDurationMin, Math.max(state.finisher.minDurationMin, n));
+  const finisherEntry = (exerciseId: string, durationMin: number): CardioEntry => ({
+    kind: 'cardio',
+    role: 'finisher',
+    slotId: FINISHER_SLOT_ID,
+    exerciseId,
+    durationMin,
+    done: false,
+  });
 
   const core: Core = {
     getState: () => state,
@@ -249,17 +315,19 @@ export function createCore(opts: CreateCoreOptions): Core {
     },
     init() {
       return (initP ??= (async () => {
-        const [settings, custom, sessions, active] = await Promise.all([
+        const [settings, custom, sessions, active, bodyweight] = await Promise.all([
           opts.storage.get<Partial<Settings>>(STORAGE_KEYS.settings),
           opts.storage.get<Exercise[]>(STORAGE_KEYS.customExercises),
           opts.storage.get<WorkoutSession[]>(STORAGE_KEYS.sessions),
           opts.storage.get<WorkoutSession | null>(STORAGE_KEYS.active),
+          opts.storage.get<BodyweightEntry[]>(STORAGE_KEYS.bodyweight),
         ]);
         setState({
           status: opts.seed.ok ? 'ready' : 'error',
           settings: mergeSettings(baseSettings, settings as SettingsPatch | undefined),
           sessions: sessions ?? [],
           active: active ?? null,
+          bodyweight: bodyweight ?? [],
           ...compose(custom ?? []),
         });
       })());
@@ -272,7 +340,7 @@ export function createCore(opts: CreateCoreOptions): Core {
       if (!today) throw new Error(`unknown day "${dayId ?? ''}"`);
       const entries: SessionEntry[] = today.slots.map((t): SessionEntry =>
         t.kind === 'cardio'
-          ? { kind: 'cardio', slotId: CARDIO_SLOT_ID, exerciseId: t.exercise.id, durationMin: t.durationMin, done: false }
+          ? { kind: 'cardio', role: 'warmup', slotId: CARDIO_SLOT_ID, exerciseId: t.exercise.id, durationMin: t.durationMin, done: false }
           : {
               kind: 'strength',
               slotId: t.slot.id,
@@ -282,6 +350,7 @@ export function createCore(opts: CreateCoreOptions): Core {
               restSec: t.target.restSec,
             },
       );
+      if (state.settings.finisher.autoAdd && today.finisher) entries.push(finisherEntry(today.finisher.exercise.id, today.finisher.durationMin));
       const session: WorkoutSession = {
         id: uid(),
         programId: state.program.id,
@@ -326,13 +395,35 @@ export function createCore(opts: CreateCoreOptions): Core {
       setState({ active: replaceEntry(a, entryIdx, { ...e, sets: e.sets.filter((_, i) => i !== setIdx) }) }, ['active']);
     },
 
-    logCardio(entryIdx, patch) {
+    logCardio(which, patch) {
       const a = requireActive();
-      const e = a.entries[entryIdx];
-      if (!e || e.kind !== 'cardio') throw new Error(`entry ${entryIdx} is not cardio`);
-      const next: CardioEntry = { ...e, ...patch };
+      const idx =
+        typeof which === 'number' ? which : a.entries.findIndex((e) => e.kind === 'cardio' && (e.role ?? 'warmup') === which);
+      const e = a.entries[idx];
+      if (!e || e.kind !== 'cardio') throw new Error(`no ${String(which)} cardio entry in the active session`);
+      const next: CardioEntry = { ...e, ...patch, ...(patch.metrics ? { metrics: { ...e.metrics, ...patch.metrics } } : {}) };
+      if (e.role === 'finisher' && patch.durationMin !== undefined) next.durationMin = clampFinisher(patch.durationMin);
       if (patch.done === true && !e.done) next.timestamp = now().toISOString();
-      setState({ active: replaceEntry(a, entryIdx, next) }, ['active']);
+      if (patch.done === false) delete next.timestamp;
+      setState({ active: replaceEntry(a, idx, next) }, ['active']);
+    },
+
+    addFinisher(o = {}) {
+      const a = requireActive();
+      const existing = a.entries.findIndex((e) => e.kind === 'cardio' && e.role === 'finisher');
+      if (existing >= 0) return existing;
+      const offer = finisherOffer(state);
+      const exId = o.exerciseId ?? offer?.exercise.id;
+      if (!exId || state.exercises[exId]?.kind !== 'cardio') throw new Error('no cardio exercise available for the finisher');
+      const entry = finisherEntry(exId, clampFinisher(o.durationMin ?? offer?.durationMin ?? state.finisher.defaultDurationMin));
+      setState({ active: { ...a, entries: [...a.entries, entry] } }, ['active']);
+      return a.entries.length;
+    },
+
+    removeFinisher() {
+      const a = requireActive();
+      if (!a.entries.some((e) => e.kind === 'cardio' && e.role === 'finisher')) return;
+      setState({ active: { ...a, entries: a.entries.filter((e) => !(e.kind === 'cardio' && e.role === 'finisher')) } }, ['active']);
     },
 
     finishSession() {
@@ -373,11 +464,14 @@ export function createCore(opts: CreateCoreOptions): Core {
     swapExercise(slotId, exerciseId, scope) {
       const ex = state.exercises[exerciseId];
       if (!ex) throw new Error(`unknown exercise "${exerciseId}"`);
-      const isCardio = slotId === CARDIO_SLOT_ID;
+      const isCardio = slotId === CARDIO_SLOT_ID || slotId === FINISHER_SLOT_ID;
       if (isCardio !== (ex.kind === 'cardio')) throw new Error(`kind mismatch: cannot put ${ex.kind} "${exerciseId}" in slot "${slotId}"`);
-      const programmed = isCardio
-        ? state.warmupExerciseId
-        : state.program.days.flatMap((d) => d.slots).find((s) => s.id === slotId)?.exerciseId;
+      const programmed =
+        slotId === CARDIO_SLOT_ID
+          ? state.warmupExerciseId
+          : slotId === FINISHER_SLOT_ID
+            ? state.finisher.defaultExerciseId
+            : state.program.days.flatMap((d) => d.slots).find((s) => s.id === slotId)?.exerciseId;
       if (!programmed) throw new Error(`unknown slot "${slotId}"`);
 
       const patch: Partial<CoreState> = {};
@@ -396,7 +490,9 @@ export function createCore(opts: CreateCoreOptions): Core {
         const untouched = e.kind === 'cardio' ? !e.done : !e.sets.some((s) => s.done);
         if (scope === 'session' || untouched) {
           let next: SessionEntry;
-          if (e.kind === 'cardio') {
+          if (e.kind === 'cardio' && e.role === 'finisher') {
+            next = { ...e, exerciseId }; // finisher keeps its duration
+          } else if (e.kind === 'cardio') {
             next = { ...e, exerciseId, durationMin: cardioSlot({ ...state, settings: { ...state.settings, permanentSwaps: { [CARDIO_SLOT_ID]: exerciseId } } })?.slot.durationMin ?? e.durationMin };
           } else {
             next = { ...e, exerciseId, sets: prefillFor(exerciseId, e.target) };
@@ -463,6 +559,24 @@ export function createCore(opts: CreateCoreOptions): Core {
       return settings;
     },
 
+    logBodyweight(input) {
+      if (!(input.weight > 0)) throw new Error('weight must be > 0');
+      const date = input.date ?? localDate(now());
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('date must be YYYY-MM-DD');
+      const entry: BodyweightEntry = { date, weight: input.weight, unit: input.unit ?? state.settings.unit, ...(input.note ? { note: input.note } : {}) };
+      const bodyweight = [...state.bodyweight.filter((e) => e.date !== date), entry].sort((a, b) => (a.date < b.date ? -1 : 1));
+      setState({ bodyweight }, ['bodyweight']);
+      return entry;
+    },
+
+    deleteBodyweight(date) {
+      setState({ bodyweight: state.bodyweight.filter((e) => e.date !== date) }, ['bodyweight']);
+    },
+
+    getBodyweightTrend() {
+      return bodyweightTrend(state.bodyweight, state.settings.unit, state.settings.goal, state.bodyweightLog.trendWindowDays);
+    },
+
     exportJSON() {
       const file: ExportFile = {
         app: 'ppl-tracker',
@@ -472,6 +586,7 @@ export function createCore(opts: CreateCoreOptions): Core {
         customExercises: state.customExercises,
         sessions: state.sessions,
         active: state.active,
+        bodyweight: state.bodyweight,
       };
       return JSON.stringify(file, null, 2);
     },
@@ -486,12 +601,18 @@ export function createCore(opts: CreateCoreOptions): Core {
           settings: mergeSettings(baseSettings, file.settings as SettingsPatch),
           sessions,
           active: file.active,
+          bodyweight: [...file.bodyweight].sort((a, b) => (a.date < b.date ? -1 : 1)),
           ...compose(file.customExercises.map((e) => ({ ...e, isCustom: true }))),
         },
-        ['settings', 'customExercises', 'sessions', 'active'],
+        ['settings', 'customExercises', 'sessions', 'active', 'bodyweight'],
       );
       await writes;
-      return { ok: true, errors: [], warnings, counts: { sessions: sessions.length, customExercises: file.customExercises.length } };
+      return {
+        ok: true,
+        errors: [],
+        warnings,
+        counts: { sessions: sessions.length, customExercises: file.customExercises.length, bodyweight: file.bodyweight.length },
+      };
     },
   };
   return core;

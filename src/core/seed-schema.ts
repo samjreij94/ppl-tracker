@@ -8,9 +8,22 @@
  * `repMin/repMax`, snake_case schedule keys) and ignores unknown fields.
  * See docs/seed-schema.md.
  */
-import { BUILTIN_CARDIO, BUILTIN_CARDIO_GROUP, DEFAULT_INCREMENTS, DEFAULT_PROGRESSION_RULES } from './defaults';
+import {
+  BUILTIN_CARDIO,
+  BUILTIN_CARDIO_GROUP,
+  DEFAULT_ACTIVITY,
+  DEFAULT_BODYWEIGHT_LOG,
+  DEFAULT_FINISHER,
+  DEFAULT_GOAL,
+  DEFAULT_INCREMENTS,
+  DEFAULT_PROGRESSION_RULES,
+} from './defaults';
 import type {
+  ActivityConfig,
+  BodyweightLogConfig,
   CardioExercise,
+  FinisherConfig,
+  Goal,
   DayType,
   DayVariant,
   Exercise,
@@ -53,6 +66,29 @@ export interface SeedFile {
   schedules: { 'six-day': string[]; 'three-day': { rotation: string[]; note?: string } };
   /** The 6 rotation days. No program wrapper (program id/name default to `ppl` / `Push / Pull / Legs`). */
   days: SeedDay[];
+  /** Fat-loss update (additive, v1). */
+  goal?: {
+    type: string;
+    targetLossPctBodyweightPerWeek: { min: number; max: number };
+    proteinGPerLbGoalBodyweight?: { min: number; max: number };
+  };
+  /** Optional zone-2 cardio after lifting on every day. */
+  finisher?: {
+    optional: true;
+    pattern: string;
+    defaultExerciseId: string;
+    defaultDurationMin: number;
+    minDurationMin: number;
+    maxDurationMin: number;
+    intensity: string;
+    effortNote?: string;
+    appliesTo?: 'all-days';
+    placement: 'after-lifting';
+  };
+  /** `stepTargetRange` format `"min-max"`. */
+  activity?: { dailyStepTarget: number; stepTargetRange: string; note?: string };
+  /** `recommendedEntriesPerWeek` format `"min-max"`. */
+  bodyweightLog?: { recommendedEntriesPerWeek: string; trendWindowDays: number };
 }
 
 export interface SeedProgressionRules {
@@ -64,6 +100,16 @@ export interface SeedProgressionRules {
   targetRir?: { compound?: string; isolation?: string };
   stallConsecutiveSessions: number;
   stallLoadReductionPct: number;
+  /** Used instead of the base stall fields when goal.type === appliesWhenGoalType. */
+  cutAdjustments?: {
+    appliesWhenGoalType: string;
+    maintainCountsAsSuccess: boolean;
+    description?: string;
+    stallConsecutiveSessions: number;
+    stallLoadReductionPct: number;
+    stallRule?: string;
+    deloadNote?: string;
+  };
   deload?: {
     frequencyWeeks?: string;
     trigger?: string;
@@ -148,6 +194,10 @@ export interface LoadedSeed {
   progressionRules: ProgressionRules;
   /** Default cardio warm-up exercise id (`warmup.defaultExerciseId`). */
   warmupExerciseId: string;
+  goal: Goal;
+  finisher: FinisherConfig;
+  activity: ActivityConfig;
+  bodyweightLog: BodyweightLogConfig;
 }
 
 /**
@@ -167,6 +217,11 @@ type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
 const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+const range = (v: unknown): { min: number; max: number } | undefined => {
+  if (isObj(v) && num(v.min) !== undefined && num(v.max) !== undefined) return { min: v.min as number, max: v.max as number };
+  const m = typeof v === 'string' ? /^\s*(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*$/.exec(v) : null;
+  return m ? { min: Number(m[1]), max: Number(m[2]) } : undefined;
+};
 const strArr = (v: unknown): string[] | undefined =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : undefined;
 
@@ -452,6 +507,56 @@ export function loadSeed(input: unknown): SeedLoadResult {
       loadReductionPct: num(dl.loadReductionPct) ?? DEFAULT_PROGRESSION_RULES.deload.loadReductionPct,
     },
     targetRir: { compound: str(rir.compound) ?? '1-3', isolation: str(rir.isolation) ?? '0-2' },
+    minSetsPerSlot: 2,
+    cut: undefined,
+  };
+  const cut = isObj(pr.cutAdjustments) ? pr.cutAdjustments : undefined;
+  if (cut) {
+    progressionRules.cut = {
+      appliesWhenGoalType: str(cut.appliesWhenGoalType) ?? 'fat-loss',
+      maintainCountsAsSuccess: cut.maintainCountsAsSuccess !== false,
+      stallConsecutiveSessions: num(cut.stallConsecutiveSessions) ?? 3,
+      stallLoadReductionPct: num(cut.stallLoadReductionPct) ?? 5,
+    };
+  }
+
+  // Goal / finisher / activity / bodyweight log (fat-loss update; all optional with defaults)
+  const g = isObj(raw.goal) ? raw.goal : undefined;
+  const goal: Goal = g
+    ? {
+        type: str(g.type) ?? DEFAULT_GOAL.type,
+        targetLossPctBodyweightPerWeek: range(g.targetLossPctBodyweightPerWeek) ?? DEFAULT_GOAL.targetLossPctBodyweightPerWeek,
+        proteinGPerLbGoalBodyweight: range(g.proteinGPerLbGoalBodyweight),
+      }
+    : structuredClone(DEFAULT_GOAL);
+  const f = isObj(raw.finisher) ? raw.finisher : undefined;
+  const finisher: FinisherConfig = { ...DEFAULT_FINISHER };
+  if (f) {
+    finisher.optional = f.optional !== false;
+    finisher.pattern = str(f.pattern) ?? DEFAULT_FINISHER.pattern;
+    finisher.defaultDurationMin = num(f.defaultDurationMin) ?? DEFAULT_FINISHER.defaultDurationMin;
+    finisher.minDurationMin = num(f.minDurationMin) ?? DEFAULT_FINISHER.minDurationMin;
+    finisher.maxDurationMin = num(f.maxDurationMin) ?? DEFAULT_FINISHER.maxDurationMin;
+    finisher.intensity = str(f.intensity) ?? DEFAULT_FINISHER.intensity;
+    finisher.effortNote = str(f.effortNote);
+    const fid = str(f.defaultExerciseId);
+    if (fid && exercises.get(fid)?.kind === 'cardio') finisher.defaultExerciseId = fid;
+    else errors.push(`finisher.defaultExerciseId "${fid ?? ''}" is not a cardio exercise; using "${warmupExerciseId}"`);
+    if (!(finisher.minDurationMin <= finisher.defaultDurationMin && finisher.defaultDurationMin <= finisher.maxDurationMin)) {
+      warnings.push('finisher: expected minDurationMin <= defaultDurationMin <= maxDurationMin');
+    }
+  }
+  if (exercises.get(finisher.defaultExerciseId)?.kind !== 'cardio') finisher.defaultExerciseId = warmupExerciseId;
+  const a = isObj(raw.activity) ? raw.activity : {};
+  const activity: ActivityConfig = {
+    dailyStepTarget: num(a.dailyStepTarget) ?? DEFAULT_ACTIVITY.dailyStepTarget,
+    stepTargetRange: range(a.stepTargetRange) ?? DEFAULT_ACTIVITY.stepTargetRange,
+    note: str(a.note),
+  };
+  const b = isObj(raw.bodyweightLog) ? raw.bodyweightLog : {};
+  const bodyweightLog: BodyweightLogConfig = {
+    recommendedEntriesPerWeek: range(b.recommendedEntriesPerWeek) ?? DEFAULT_BODYWEIGHT_LOG.recommendedEntriesPerWeek,
+    trendWindowDays: num(b.trendWindowDays) ?? DEFAULT_BODYWEIGHT_LOG.trendWindowDays,
   };
   if (pr.method !== undefined && pr.method !== 'double_progression') {
     warnings.push(`progressionRules.method "${String(pr.method)}" unsupported; using double_progression`);
@@ -477,6 +582,10 @@ export function loadSeed(input: unknown): SeedLoadResult {
           increments,
           progressionRules,
           warmupExerciseId,
+          goal,
+          finisher,
+          activity,
+          bodyweightLog,
         }
       : null,
     errors,

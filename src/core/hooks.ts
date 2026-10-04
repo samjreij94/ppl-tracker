@@ -5,7 +5,9 @@
 import { createContext, createElement, useContext, useMemo, useSyncExternalStore, type ReactNode } from 'react';
 import { getBundledSeed } from './bundled-seed';
 import {
+  finisherOffer,
   getActiveEntries,
+  getCardioHistory,
   getDays,
   getExerciseSeries,
   getPRs,
@@ -15,12 +17,30 @@ import {
   lastPerformance,
 } from './logic';
 import { convertWeight, roundToIncrement } from './math';
-import type { ActiveEntryView, CoreState, CoreStatus, DaySummary, LastPerformance, TodayView } from './state';
+import type { ActiveEntryView, CardioHistoryItem, CoreState, CoreStatus, DaySummary, LastPerformance, TodayFinisher, TodayView } from './state';
 import { createIdbStorage } from './storage';
-import { createCore, type Core, type CustomExerciseInput, type FinishResult, type LogSetResult, type SetPatch, type SettingsPatch } from './store';
+import { bodyweightTrend } from './bodyweight';
+import {
+  createCore,
+  type BodyweightInput,
+  type CardioPatch,
+  type Core,
+  type CustomExerciseInput,
+  type FinishResult,
+  type LogSetResult,
+  type SetPatch,
+  type SettingsPatch,
+} from './store';
 import type { ImportResult } from './transfer';
 import type {
+  ActivityConfig,
+  BodyweightEntry,
+  BodyweightLogConfig,
+  BodyweightTrend,
+  CardioRole,
   Exercise,
+  FinisherConfig,
+  Goal,
   ExerciseSeriesPoint,
   PRResult,
   Settings,
@@ -100,7 +120,16 @@ export interface UseWorkout {
   logSet: (entryIdx: number, setIdx: number, patch: SetPatch) => LogSetResult;
   addSet: (entryIdx: number, init?: Partial<SetLog>) => number;
   removeSet: (entryIdx: number, setIdx: number) => void;
-  logCardio: (entryIdx: number, patch: { durationMin?: number; done?: boolean }) => void;
+  /** Update the warm-up or the finisher (finisher duration clamped to min..max). */
+  logCardio: (which: CardioRole | number, patch: CardioPatch) => void;
+  /** The finisher offer (exercise, prefilled duration, min/max, intensity, effortNote) — show an "Add finisher" button. */
+  finisher: TodayFinisher | null;
+  /** True if the active session contains a finisher entry. */
+  hasFinisher: boolean;
+  /** Add the optional finisher as the last entry; returns its entry index. */
+  addFinisher: (opts?: { exerciseId?: string; durationMin?: number }) => number;
+  /** Skip/remove the finisher. */
+  removeFinisher: () => void;
   /** Alternatives for an entry's slot (same pattern, incl. custom + the programmed one). */
   getSwaps: (entryIdx: number) => Exercise[];
   swapExercise: (slotId: string, exerciseId: string, scope: 'session' | 'permanent') => void;
@@ -113,6 +142,7 @@ export function useWorkout(): UseWorkout {
   const core = useCore();
   const s = useCoreState();
   const entries = useMemo(() => getActiveEntries(s), [s]);
+  const finisher = useMemo(() => finisherOffer(s), [s]);
   return {
     status: s.status,
     session: s.active,
@@ -123,6 +153,10 @@ export function useWorkout(): UseWorkout {
     addSet: core.addSet,
     removeSet: core.removeSet,
     logCardio: core.logCardio,
+    finisher,
+    hasFinisher: !!s.active?.entries.some((e) => e.kind === 'cardio' && e.role === 'finisher'),
+    addFinisher: core.addFinisher,
+    removeFinisher: core.removeFinisher,
     getSwaps: (i) => {
       const e = s.active?.entries[i];
       return e ? getSwaps(s, e.exerciseId, e.slotId) : [];
@@ -143,6 +177,8 @@ export interface UseExerciseHistory {
   /** Finished sessions containing this exercise, newest first. */
   sessions: WorkoutSession[];
   last: LastPerformance | null;
+  /** Cardio exercises only: done warm-ups/finishers with this exercise, newest first. */
+  cardio: CardioHistoryItem[];
 }
 
 /** History for ONE exercise id (substitutes have their own history). */
@@ -155,6 +191,7 @@ export function useExerciseHistory(exerciseId: string): UseExerciseHistory {
       prs: getPRs(s, exerciseId),
       sessions: getSessions(s, { exerciseId }),
       last: lastPerformance(s, exerciseId),
+      cardio: getCardioHistory(s, { exerciseId }),
     }),
     [s, exerciseId],
   );
@@ -196,6 +233,12 @@ export function useExercises(): UseExercises {
 /** Return of `useSettings`. */
 export interface UseSettings {
   settings: Settings;
+  /** = settings.goal */
+  goal: Goal;
+  /** Seed configs (read-only). */
+  finisherConfig: FinisherConfig;
+  activity: ActivityConfig;
+  bodyweightLog: BodyweightLogConfig;
   updateSettings: (patch: SettingsPatch) => Settings;
   clearPermanentSwap: (slotId: string) => void;
   convertWeight: (value: number, from: Unit, to: Unit) => number;
@@ -208,6 +251,10 @@ export function useSettings(): UseSettings {
   const s = useCoreState();
   return {
     settings: s.settings,
+    goal: s.settings.goal,
+    finisherConfig: s.finisher,
+    activity: s.activity,
+    bodyweightLog: s.bodyweightLog,
     updateSettings: core.updateSettings,
     clearPermanentSwap: core.clearPermanentSwap,
     convertWeight,
@@ -232,5 +279,36 @@ export function useDataTransfer(): UseDataTransfer {
     exportJSON: core.exportJSON,
     exportFileName: () => `ppl-tracker-${new Date().toISOString().slice(0, 10)}.json`,
     importJSON: core.importJSON,
+  };
+}
+
+/** Return of `useBodyweight`. */
+export interface UseBodyweight {
+  /** Newest first. */
+  entries: BodyweightEntry[];
+  trend: BodyweightTrend;
+  config: BodyweightLogConfig;
+  goal: Goal;
+  /** Upsert one reading per date (default today, settings.unit). */
+  logBodyweight: (entry: BodyweightInput) => BodyweightEntry;
+  deleteBodyweight: (date: string) => void;
+}
+
+/** Bodyweight log + 7-day trend vs goal. */
+export function useBodyweight(): UseBodyweight {
+  const core = useCore();
+  const s = useCoreState();
+  const trend = useMemo(
+    () => bodyweightTrend(s.bodyweight, s.settings.unit, s.settings.goal, s.bodyweightLog.trendWindowDays),
+    [s.bodyweight, s.settings.unit, s.settings.goal, s.bodyweightLog.trendWindowDays],
+  );
+  const entries = useMemo(() => [...s.bodyweight].reverse(), [s.bodyweight]);
+  return {
+    entries,
+    trend,
+    config: s.bodyweightLog,
+    goal: s.settings.goal,
+    logBodyweight: core.logBodyweight,
+    deleteBodyweight: core.deleteBodyweight,
   };
 }

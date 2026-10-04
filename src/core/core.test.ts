@@ -8,8 +8,11 @@ import {
   createCore,
   createIdbStorage,
   createMemoryStorage,
+  bodyweightTrend,
+  DEFAULT_PROGRESSION_RULES,
   epley,
   getProgression,
+  suggestProgression,
   getSwaps,
   getToday,
   loadSeed,
@@ -60,7 +63,7 @@ describe('core store', () => {
 
     // progression: all sets hit max → add 5 lb
     const hint = getProgression(core.getState(), 'barbell-bench-press', { sets: 4, repRange: { min: 5, max: 8 } })!;
-    expect(hint).toMatchObject({ action: 'increase', newWeight: 140, increment: 5, message: 'add 5 lb' });
+    expect(hint).toMatchObject({ action: 'increase', newWeight: 140, increment: 5, message: 'add 5 lb', rules: 'cut' });
 
     // prefill from last + PR on next session
     core.startSession('push-a');
@@ -118,6 +121,54 @@ describe('core store', () => {
   });
 });
 
+describe('fat-loss additions', () => {
+  it('finisher: optional, prefilled from last finisher, clamped, counted as cardio only', async () => {
+    const { core } = await makeCore();
+    core.startSession();
+    expect(core.getState().active!.entries.some((e) => e.kind === 'cardio' && e.role === 'finisher')).toBe(false);
+    const idx = core.addFinisher();
+    const fin = core.getState().active!.entries[idx];
+    expect(fin).toMatchObject({ kind: 'cardio', role: 'finisher', exerciseId: 'incline-treadmill', durationMin: 15 });
+    core.logCardio('finisher', { durationMin: 45, done: true });
+    expect(core.getState().active!.entries[idx]).toMatchObject({ durationMin: 20, done: true }); // clamped to max
+    core.swapExercise('cardio-finisher', 'peloton', 'session');
+    core.finishSession();
+    core.startSession();
+    expect(getToday(core.getState())!.finisher).toMatchObject({ exercise: { id: 'peloton' }, durationMin: 20, intensity: 'zone-2' });
+    core.removeFinisher();
+  });
+
+  it('cut progression: hold → dropSet → reduceLoad ~5%; base: reduceLoad after 2', () => {
+    const fail = { sets: [{ weight: 200, reps: 4, done: true }, { weight: 200, reps: 6, done: true }, { weight: 200, reps: 5, done: true }] };
+    const varied = (r: number) => ({ sets: [{ weight: 200, reps: r, done: true }, { weight: 200, reps: 6, done: true }, { weight: 200, reps: 5, done: true }] });
+    const base = { exerciseId: 'x', repRange: { min: 5, max: 8 }, targetSets: 3, unit: 'lb' as const, increment: 5, rules: DEFAULT_PROGRESSION_RULES };
+    const cut = { ...base, goalType: 'fat-loss' };
+    expect(suggestProgression({ ...cut, history: [varied(4), varied(3)] }).action).toBe('hold');
+    expect(suggestProgression({ ...cut, history: [varied(4), varied(3), varied(2)] })).toMatchObject({ action: 'dropSet', newSets: 2 });
+    expect(suggestProgression({ ...cut, history: [varied(4), varied(3), varied(2), varied(1)] })).toMatchObject({ action: 'reduceLoad', newWeight: 190 });
+    // maintaining the same load & reps on a cut is a success, not a stall
+    expect(suggestProgression({ ...cut, history: [fail, fail, fail, fail] }).action).toBe('hold');
+    expect(suggestProgression({ ...base, history: [varied(4), varied(3)] })).toMatchObject({ action: 'reduceLoad', newWeight: 180, rules: 'base' });
+  });
+
+  it('bodyweight: upsert per date, 7-day trend + weekly rate vs goal, export/import', async () => {
+    const { core } = await makeCore();
+    const goal = core.getState().settings.goal;
+    for (let d = 1; d <= 14; d++) core.logBodyweight({ date: `2026-09-${String(d).padStart(2, '0')}`, weight: 200 - d * 0.2 });
+    core.logBodyweight({ date: '2026-09-14', weight: 197.2 }); // upsert
+    expect(core.getState().bodyweight).toHaveLength(14);
+    const t = core.getBodyweightTrend();
+    expect(t.weeklyRate!.lossPerWeek).toBeCloseTo(1.4, 1);
+    expect(t.status).toBe('onTrack'); // ~0.7 %/wk within 0.5–1.0
+    expect(bodyweightTrend([{ date: '2026-09-01', weight: 200, unit: 'lb' }], 'lb', goal).status).toBe('insufficientData');
+    const { core: other } = await makeCore();
+    const res = await other.importJSON(core.exportJSON());
+    expect(res.counts?.bodyweight).toBe(14);
+    core.deleteBodyweight('2026-09-01');
+    expect(core.getState().bodyweight).toHaveLength(13);
+  });
+});
+
 describe('hooks', () => {
   it('useToday + useWorkout', async () => {
     const { core } = await makeCore();
@@ -131,7 +182,7 @@ describe('hooks', () => {
     expect(w.result.current.session?.dayId).toBe('push-a');
     expect(w.result.current.entries[1].exercise.id).toBe('barbell-bench-press');
     act(() => {
-      w.result.current.logCardio(0, { done: true });
+      w.result.current.logCardio('warmup', { done: true });
     });
     expect(w.result.current.entries[0].entry).toMatchObject({ kind: 'cardio', done: true });
   });

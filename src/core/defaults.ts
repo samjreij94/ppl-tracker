@@ -1,4 +1,14 @@
-import type { CardioExercise, Increments, ProgressionRules, Settings, SubstitutionGroup } from './types';
+import type {
+  ActivityConfig,
+  BodyweightLogConfig,
+  CardioExercise,
+  FinisherConfig,
+  Goal,
+  Increments,
+  ProgressionRules,
+  Settings,
+  SubstitutionGroup,
+} from './types';
 import { CARDIO_GROUP_ID } from './types';
 
 /** Default increments (match the seed's progressionCategories). */
@@ -50,6 +60,8 @@ export function defaultSettings(overrides: Partial<Settings> = {}): Settings {
     increments: structuredClone(DEFAULT_INCREMENTS),
     permanentSwaps: {},
     cardio: { enabled: true, defaultDurationMin: 10 },
+    finisher: { autoAdd: false },
+    goal: structuredClone(DEFAULT_GOAL),
     ...overrides,
   };
 }
@@ -58,6 +70,31 @@ export function defaultSettings(overrides: Partial<Settings> = {}): Settings {
 export const DEFAULT_PROGRESSION_RULES: ProgressionRules = {
   stallConsecutiveSessions: 2,
   stallLoadReductionPct: 10,
+  minSetsPerSlot: 2,
+  cut: { appliesWhenGoalType: 'fat-loss', maintainCountsAsSuccess: true, stallConsecutiveSessions: 3, stallLoadReductionPct: 5 },
   deload: { setReductionPct: 50, loadReductionPct: 10 },
   targetRir: { compound: '1-3', isolation: '0-2' },
 };
+
+/** Default goal (matches the seed's `goal`). */
+export const DEFAULT_GOAL: Goal = {
+  type: 'fat-loss',
+  targetLossPctBodyweightPerWeek: { min: 0.5, max: 1.0 },
+  proteinGPerLbGoalBodyweight: { min: 0.7, max: 1.0 },
+};
+
+/** Default finisher (matches the seed's `finisher`). */
+export const DEFAULT_FINISHER: FinisherConfig = {
+  optional: true,
+  pattern: CARDIO_GROUP_ID,
+  defaultExerciseId: 'incline-treadmill',
+  defaultDurationMin: 15,
+  minDurationMin: 10,
+  maxDurationMin: 20,
+  intensity: 'zone-2',
+  placement: 'after-lifting',
+};
+
+export const DEFAULT_ACTIVITY: ActivityConfig = { dailyStepTarget: 8000, stepTargetRange: { min: 7000, max: 10000 } };
+
+export const DEFAULT_BODYWEIGHT_LOG: BodyweightLogConfig = { recommendedEntriesPerWeek: { min: 3, max: 7 }, trendWindowDays: 7 };

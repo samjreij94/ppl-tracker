@@ -14,14 +14,16 @@
 
 // Types
 export type * from './types';
-export { CARDIO_GROUP_ID, CARDIO_SLOT_ID, EXERCISE_CATEGORIES } from './types';
+export { CARDIO_GROUP_ID, CARDIO_SLOT_ID, EXERCISE_CATEGORIES, FINISHER_SLOT_ID } from './types';
 export type {
   ActiveEntryView,
+  CardioHistoryItem,
   CoreState,
   CoreStatus,
   DaySummary,
   LastPerformance,
   TodayCardioSlot,
+  TodayFinisher,
   TodaySlot,
   TodayStrengthSlot,
   TodayView,
@@ -30,6 +32,8 @@ export type {
 // Store
 export { createCore } from './store';
 export type {
+  BodyweightInput,
+  CardioPatch,
   Core,
   CreateCoreOptions,
   CustomExerciseInput,
@@ -43,6 +47,7 @@ export type {
 export {
   CoreProvider,
   getCore,
+  useBodyweight,
   useCore,
   useCoreState,
   useDataTransfer,
@@ -52,13 +57,16 @@ export {
   useToday,
   useWorkout,
 } from './hooks';
-export type { UseDataTransfer, UseExerciseHistory, UseExercises, UseSettings, UseToday, UseWorkout } from './hooks';
+export type { UseBodyweight, UseDataTransfer, UseExerciseHistory, UseExercises, UseSettings, UseToday, UseWorkout } from './hooks';
 
 // Pure queries (take a CoreState snapshot)
 export {
+  cardioSlot,
   detectPRs,
   exerciseHistory,
+  finisherOffer,
   getActiveEntries,
+  getCardioHistory,
   getDays,
   getExercise,
   getExerciseSeries,
@@ -75,11 +83,23 @@ export {
   suggestProgression,
 } from './logic';
 
+// Bodyweight
+export { bodyweightTrend, localDate } from './bodyweight';
+
 // Math
 export { bestE1rm, convertWeight, doneSets, epley, roundToIncrement, topSet, volume } from './math';
 
 // Defaults
-export { BUILTIN_CARDIO, DEFAULT_INCREMENTS, DEFAULT_PROGRESSION_RULES, defaultSettings } from './defaults';
+export {
+  BUILTIN_CARDIO,
+  DEFAULT_ACTIVITY,
+  DEFAULT_BODYWEIGHT_LOG,
+  DEFAULT_FINISHER,
+  DEFAULT_GOAL,
+  DEFAULT_INCREMENTS,
+  DEFAULT_PROGRESSION_RULES,
+  defaultSettings,
+} from './defaults';
 
 // Storage
 export { createIdbStorage, createMemoryStorage, STORAGE_KEYS } from './storage';
