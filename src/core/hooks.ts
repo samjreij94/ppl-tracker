@@ -16,10 +16,11 @@ import {
   getSwaps,
   getToday,
   lastPerformance,
+  sessionPRs,
 } from './logic';
 import { convertWeight, roundToIncrement } from './math';
 import type { ActiveEntryView, CardioHistoryItem, CoreState, CoreStatus, DaySummary, LastPerformance, TodayFinisher, TodayView } from './state';
-import { createIdbStorage } from './storage';
+import { browserLocalStorage, createIdbStorage } from './storage';
 import { bodyweightTrend } from './bodyweight';
 import {
   createCore,
@@ -60,7 +61,8 @@ let defaultCore: Core | undefined;
 /** The app-wide core (IndexedDB + bundled seed). Created and `init()`ed on first use. */
 export function getCore(): Core {
   if (!defaultCore) {
-    defaultCore = createCore({ storage: createIdbStorage(), seed: getBundledSeed() });
+    // localStorage mirror: settings / active session survive an immediate kill (iOS).
+    defaultCore = createCore({ storage: createIdbStorage(), seed: getBundledSeed(), mirror: browserLocalStorage() });
     void defaultCore.init();
   }
   return defaultCore;
@@ -184,6 +186,8 @@ export interface UseExerciseHistory {
   last: LastPerformance | null;
   /** Cardio exercises only: done warm-ups/finishers with this exercise, newest first. */
   cardio: CardioHistoryItem[];
+  /** Canonical PRs of a session (all exercises; see `sessionPRs`). Count = `.length`. */
+  sessionPRs: (sessionOrId: WorkoutSession | string) => PRResult[];
 }
 
 /** History for ONE exercise id (substitutes have their own history). */
@@ -197,6 +201,7 @@ export function useExerciseHistory(exerciseId: string): UseExerciseHistory {
       sessions: getSessions(s, { exerciseId }),
       last: lastPerformance(s, exerciseId),
       cardio: getCardioHistory(s, { exerciseId }),
+      sessionPRs: (sessionOrId: WorkoutSession | string) => sessionPRs(s, sessionOrId),
     }),
     [s, exerciseId],
   );

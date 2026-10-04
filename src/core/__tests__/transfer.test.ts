@@ -19,6 +19,7 @@ async function populated() {
 const strip = (json: string) => {
   const o = JSON.parse(json);
   delete o.exportedAt;
+  delete o.settings?.updatedAt; // re-stamped by every settings write (incl. import)
   return o;
 };
 

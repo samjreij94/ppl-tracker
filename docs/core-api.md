@@ -13,18 +13,20 @@ useToday(dayId?) => {
 useWorkout() => {
   status; session: WorkoutSession | null; entries: ActiveEntryView[]; unit: Unit;
   startSession(dayId?): WorkoutSession;
-  logSet(entryIdx, setIdx, patch: Partial<SetLog>): { prs: PRResult[] }   // PRs only when set becomes done
+  logSet(entryIdx, setIdx, patch: Partial<SetLog>): { prs: PRResult[] }   // per-set PRs (live pill), only when set becomes done; carry-over to later untouched sets
   addSet(entryIdx, init?: Partial<SetLog>): number;  removeSet(entryIdx, setIdx): void;
   logCardio(which: 'warmup' | 'finisher' | entryIdx, { durationMin?, done?, metrics?: {incline?, speed?, calories?, output?} }): void;
   finisher: TodayFinisher | null; hasFinisher: boolean;                     // optional zone-2 cardio after lifting
   addFinisher(opts?: { exerciseId?, durationMin? }): number; removeFinisher(): void;
   getSwaps(entryIdx): Exercise[];
   swapExercise(slotId, exerciseId, scope: 'session' | 'permanent'): void;
-  finishSession(): { session: WorkoutSession; prs: PRResult[] } | null;  discardSession(): void;
+  finishSession(): { session: WorkoutSession; prs: PRResult[] } | null;  // null (and discarded) if nothing was done
+  discardSession(): void;
 }
 useExerciseHistory(exerciseId) => { exercise?: Exercise; series: ExerciseSeriesPoint[] /* old→new */;
   prs: PRResult[]; sessions: WorkoutSession[] /* new→old */; last: LastPerformance | null;
-  cardio: CardioHistoryItem[] /* cardio exercises: warm-ups + finishers, new→old */ }
+  cardio: CardioHistoryItem[] /* cardio exercises: warm-ups + finishers, new→old */;
+  sessionPRs(sessionOrId): PRResult[] /* canonical PRs of a session, see "What counts as a PR" */ }
 useExercises() => { exercises: Exercise[]; byId; groups: Record<id, SubstitutionGroup>; customExercises;
   getSwaps(exerciseId, slotId?): Exercise[]; swapExercise(...); clearPermanentSwap(slotId);
   addCustomExercise(input: CustomExerciseInput): Exercise; removeCustomExercise(id) }
@@ -108,7 +110,7 @@ Math: `epley`, `topSet`, `volume`, `bestE1rm`, `doneSets`, `convertWeight`, `rou
   Finisher: same rule with its own history (`role: 'finisher'`), duration clamped 10–20.
 - **Cardio metrics** `{incline?, speed?, distance?, calories?, output?}`: `speed`/`distance` are mph/mi in lb, km/h/km in kg;
   `getCardioHistory` and prefills convert to the current unit (`convertDistance`, `convertCardioMetrics`).
-- **PRs** compare against prior sets only (history + earlier done sets this session); a first-ever set is never a PR;
+- **PRs** (see "What counts as a PR" below for the canonical per-session definition): `logSet` compares against prior sets only (history + earlier done sets this session); a first-ever set is never a PR;
   editing an already-done set doesn't re-fire. `finishSession` returns the best new record per kind per exercise vs history.
 - **Custom exercises**: ids are `custom-<slug>[-n]` and never collide with seed ids; `removeCustomExercise` throws if the
   exercise is in the active session; imports whose custom ids collide with seed ids are rejected.
@@ -197,3 +199,54 @@ Additive in phase 4: `Settings.profile`, `Settings.onboardedAt?`, types `Profile
 `ProfilePatch`, `UseOnboarding`; `GoalType` adds `'build-muscle' | 'general-strength'`; consts `GOAL_TYPES`,
 `EXPERIENCE_LEVELS`; `BodyweightTrend.goalApplies`; `SettingsPatch.profile?`; `Core.completeOnboarding`,
 `Core.updateProfile`; `useOnboarding`; `useSettings().profile/onboarded/completeOnboarding/updateProfile`.
+
+## What counts as a PR
+
+Single source of truth for the workout summary AND history: **`session.prs`** (written by `finishSession`), read via
+**`sessionPRs(state, sessionOrId)`** (also `useExerciseHistory(id).sessionPRs(sessionOrId)`). **PR count of a session =
+`sessionPRs(state, session).length`.** The UI must not recompute PRs itself.
+
+1. Only **done** sets of **strength** exercises count (cardio never). Each set is compared with that exercise's done sets
+   from **finished sessions before this session** (never with other sets of the same session). An exercise with no prior
+   sets (first time ever) has **no** PRs. A substitute exercise has its own history.
+2. A set is a candidate for each kind it beats (values in the display unit):
+   - `e1rm`: its Epley e1RM (`weight × (1 + reps/30)`, weight > 0) is higher than the best prior e1RM;
+   - `topSet`: its weight is heavier than every prior set;
+   - `repsAtWeight`: it has more reps than any prior set at exactly that weight (the weight must have been lifted before).
+3. Per exercise, keep **at most ONE PR per kind** — the best candidate of that kind in the session: `e1rm` → highest e1RM;
+   `topSet` → heaviest weight; `repsAtWeight` → heaviest weight (tie → most reps). So a session has at most
+   3 PRs per exercise. Order: exercise order in the session, then `e1rm`, `topSet`, `repsAtWeight`.
+4. Each PR carries `previous` (the prior best of that kind; for `repsAtWeight` the prior best reps at that weight),
+   `weight`, `reps`, `sessionId`, `date` (= session start).
+5. `session.prs` is frozen at finish time (unit of that time). Sessions finished before `prs` existed get the same rules
+   computed on demand by `sessionPRs` against the sessions before them (current unit). **Deleting a session does not
+   rewrite later sessions' stored `prs`** — they stay as they were when those sessions were finished.
+6. `logSet`'s returned `prs` are different on purpose: per set, for the live pill, compared with history AND earlier done
+   sets of the current session (so two improving sets can both light up); they are not stored. `getPRs(state, id)` is the
+   current all-time record table for one exercise (not per session).
+
+## QC fixes (phase 5)
+
+- **Set carry-over**: prefilled sets carry `SetLog.prefill: 'history' | 'default'` and edited sets `SetLog.touched: true`
+  (active session only; stripped on finish). When `logSet` marks a set done or enters weight/reps, every LATER set of that
+  entry that is untouched, not done and not a per-set history copy (`prefill !== 'history'`; legacy sets without the
+  marker: only weight 0) gets that set's weight and reps. So a first-time 135×8 on set 1 fills sets 2..N; with history the
+  per-set copies stay, only sets beyond last time's count carry. `addSet()` copies the previous set (`prefill: 'default'`,
+  still a carry target); `addSet(i, init)` counts as touched.
+- **Durable settings / active session**: every settings write is stamped `settings.updatedAt`. The app's default core
+  (`getCore()`) mirrors settings (`ppl-tracker/v1/settings`) and the active session (`ppl-tracker/v1/active`,
+  `{savedAt, value}`) SYNCHRONOUSLY to localStorage (`createCore({mirror})`, `browserLocalStorage()`), in addition to
+  IndexedDB. On `init()` the newer settings copy (by `updatedAt`) wins and repairs IndexedDB; the active mirror wins unless
+  that session is already in the finished history. A finished/discarded session clears the active mirror only after
+  IndexedDB has the new state. A failing mirror write removes the mirror key (a stale copy never wins). The core also
+  registers `pagehide` and `visibilitychange` (hidden) listeners that call `flush()` (browser only; `lifecycle: false`
+  disables; `core.dispose()` removes them). Tests/`createCore` without `mirror` behave as before.
+- **Empty finish**: `finishSession()` with no done strength set and no done cardio does NOT save a session and does NOT
+  advance the rotation: it discards the active session (like `discardSession()`) and returns `null`. A session with only
+  done cardio is saved. `deleteSession` rewinds the rotation (the next day follows the latest remaining session).
+
+Additive in phase 5: `SetLog.touched?`, `SetLog.prefill?`, `Settings.updatedAt?`, `computeSessionPRs(session,
+priorSessions, unit)`, `sessionPRs(state, sessionOrId)`, `useExerciseHistory().sessionPRs`, `Core.dispose()`,
+`CreateCoreOptions.mirror?` / `lifecycle?`, `SyncStorage`, `MIRROR_KEYS`, `browserLocalStorage()`,
+`createMemorySyncStorage()`. Behavior: `finishSession` dedupes to one PR per exercise per kind (previously one
+`repsAtWeight` per weight) and returns null for empty sessions.

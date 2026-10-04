@@ -195,9 +195,24 @@ export function deloadSets(sets: number, setReductionPct = 50): number {
  * - `deload`: ALL (reduced) sets get `hint.newWeight` (last working weight −10%,
  *   snapped to the increment) × `repRange.min` reps.
  * - `addReps` / `hold` / `dropSet`: last weight and reps unchanged.
+ *
+ * Each set carries `prefill: 'history'` (copied from that set of the last session) or `'default'`
+ * (no per-set history: first time, or more sets than last time) — `'default'` sets are carry-over
+ * targets in `logSet` / `addSet` until the user touches them.
  */
 export function prefillSets(state: CoreState, exerciseId: string, target: { sets: number; repRange: RepRange }): SetLog[] {
   const last = lastPerformance(state, exerciseId, { excludeDeload: true });
+  const fromHistory = last?.sets.length ?? 0;
+  // Mark the origin: per-set history copies are never carried over; the rest are carry-over targets.
+  return prefillSetsRaw(state, exerciseId, target, last).map((s, i) => ({ ...s, prefill: i < fromHistory ? 'history' : 'default' }));
+}
+
+function prefillSetsRaw(
+  state: CoreState,
+  exerciseId: string,
+  target: { sets: number; repRange: RepRange },
+  last: LastPerformance | null,
+): SetLog[] {
   const ex = state.exercises[exerciseId];
   const roundTo =
     last && last.sourceUnit && last.sourceUnit !== state.settings.unit && ex?.kind === 'strength'
@@ -419,6 +434,56 @@ export function priorSetsFor(
     });
   }
   return sets;
+}
+
+/**
+ * Canonical PRs of ONE session ("What counts as a PR", docs/core-api.md):
+ * for each strength exercise in the session, every DONE set is compared (`detectPRs`) with that
+ * exercise's done sets from `priorSessions` only (never with other sets of the same session);
+ * then at most ONE PR per exercise per kind is kept — the best of that kind in the session:
+ * `e1rm` highest e1RM, `topSet` heaviest weight, `repsAtWeight` heaviest weight (tie → most reps).
+ * First-ever exercises have no PRs. Values in `unit`. Order: exercise order, then e1rm, topSet, repsAtWeight.
+ */
+export function computeSessionPRs(session: WorkoutSession, priorSessions: readonly WorkoutSession[], unit: Unit): PRResult[] {
+  const out: PRResult[] = [];
+  const ids = [...new Set(session.entries.filter((e) => e.kind === 'strength').map((e) => e.exerciseId))];
+  for (const id of ids) {
+    const prior = exerciseHistory(priorSessions, id, unit).flatMap((h) => h.sets);
+    const mine = session.entries
+      .flatMap((e) => (e.kind === 'strength' && e.exerciseId === id ? doneSets(e.sets) : []))
+      .map((s) => ({ ...s, weight: r2(convertWeight(s.weight, session.unit, unit)) }));
+    const best: Partial<Record<PRResult['kind'], PRResult>> = {};
+    for (const s of mine) {
+      for (const pr of detectPRs(id, s, prior)) {
+        const cur = best[pr.kind];
+        const better =
+          !cur ||
+          (pr.kind === 'repsAtWeight'
+            ? pr.weight > cur.weight + EPS || (Math.abs(pr.weight - cur.weight) <= EPS && pr.value > cur.value)
+            : pr.value > cur.value + EPS);
+        if (better) best[pr.kind] = { ...pr, sessionId: session.id, date: session.startedAt };
+      }
+    }
+    for (const k of ['e1rm', 'topSet', 'repsAtWeight'] as const) if (best[k]) out.push(best[k]!);
+  }
+  return out;
+}
+
+/**
+ * PRs of a session — the single source of truth for the summary and history counts
+ * (count = `sessionPRs(...).length`). Returns the stored `session.prs` (computed at finish time,
+ * in the unit of that time) or, for older sessions without it, `computeSessionPRs` against the
+ * sessions BEFORE it in history (current display unit). For the active session: against all
+ * finished sessions. Unknown id → [].
+ */
+export function sessionPRs(state: CoreState, sessionOrId: WorkoutSession | string): PRResult[] {
+  const id = typeof sessionOrId === 'string' ? sessionOrId : sessionOrId.id;
+  const idx = state.sessions.findIndex((s) => s.id === id);
+  const session =
+    typeof sessionOrId === 'string' ? (idx >= 0 ? state.sessions[idx] : state.active?.id === id ? state.active : undefined) : sessionOrId;
+  if (!session) return [];
+  if (session.prs) return session.prs;
+  return computeSessionPRs(session, idx >= 0 ? state.sessions.slice(0, idx) : state.sessions, state.settings.unit);
 }
 
 /* ------------------------------------------------------------------ history */

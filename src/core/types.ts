@@ -218,6 +218,17 @@ export interface SetLog {
   done: boolean;
   /** ISO time when marked done. */
   timestamp?: string;
+  /**
+   * Active session only: the user edited this set (any `logSet` on it). Untouched sets may be
+   * overwritten by carry-over (see `logSet`). Stripped when the session is finished.
+   */
+  touched?: boolean;
+  /**
+   * Active session only: where the prefill came from. `history` = copied per-set from the last
+   * session (never carried over); `default` = no per-set history (0 / repMin, a repeated set, a
+   * carried value or an added set) → carry-over target while untouched. Stripped on finish.
+   */
+  prefill?: 'history' | 'default';
 }
 
 /** A strength exercise performed in a session. */
@@ -431,6 +442,11 @@ export interface Settings {
   deload: DeloadSettings;
   /** Per-device profile (name, experience). */
   profile: Profile;
+  /**
+   * ISO time of the last settings write (stamped by the store on every settings change). On init the
+   * newer of the IndexedDB copy and the synchronous localStorage mirror wins.
+   */
+  updatedAt?: string;
   /**
    * ISO time onboarding was completed. Absent on a fresh install (show onboarding);
    * existing data without it is migrated on init / import (set to now, goal 'fat-loss' if missing).

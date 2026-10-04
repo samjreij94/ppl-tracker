@@ -10,6 +10,9 @@
  *   `v1/active` → WorkoutSession | null
  *   `v1/bodyweight` → BodyweightEntry[] (sorted by date, one per date)
  * Weights are stored AS ENTERED with `WorkoutSession.unit` (not normalized).
+ *
+ * Settings and the active session are ALSO mirrored synchronously to localStorage
+ * (`MIRROR_KEYS`) by the app's default core; on init the newer copy wins.
  */
 import { createStore, del, get, set } from 'idb-keyval';
 
@@ -46,5 +49,48 @@ export function createMemoryStorage(initial: Record<string, unknown> = {}): Stor
     set: async (key, value) => void m.set(key, structuredClone(value)),
     del: async (key) => void m.delete(key),
     dump: () => Object.fromEntries(structuredClone([...m.entries()])),
+  };
+}
+
+/**
+ * Synchronous key-value store (the `localStorage` shape). Used as a write-through MIRROR of the
+ * settings and the active session so a change survives the app being killed right after a tap
+ * (IndexedDB writes are async and can be lost).
+ */
+export interface SyncStorage {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
+/** localStorage keys of the synchronous mirror. */
+export const MIRROR_KEYS = {
+  /** JSON Settings (with `updatedAt`). */
+  settings: 'ppl-tracker/v1/settings',
+  /** JSON `{ savedAt: ISO, value: WorkoutSession | null }`. */
+  active: 'ppl-tracker/v1/active',
+} as const;
+
+/** `window.localStorage` when usable (browser, not blocked), else undefined. Never throws. */
+export function browserLocalStorage(): SyncStorage | undefined {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return undefined;
+    const probe = 'ppl-tracker/probe';
+    window.localStorage.setItem(probe, '1');
+    window.localStorage.removeItem(probe);
+    return window.localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+/** In-memory SyncStorage for tests. */
+export function createMemorySyncStorage(initial: Record<string, string> = {}): SyncStorage & { dump(): Record<string, string> } {
+  const m = new Map<string, string>(Object.entries(initial));
+  return {
+    getItem: (k) => (m.has(k) ? m.get(k)! : null),
+    setItem: (k, v) => void m.set(k, String(v)),
+    removeItem: (k) => void m.delete(k),
+    dump: () => Object.fromEntries(m),
   };
 }

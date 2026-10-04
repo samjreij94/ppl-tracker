@@ -11,7 +11,7 @@ describe('prefill', () => {
   it('no history → slot set count, weight 0, reps = repRange.min, not done', async () => {
     const { core } = await makeCore();
     core.startSession('push-a');
-    expect(entry(core, BENCH).sets).toEqual(Array(4).fill({ weight: 0, reps: 5, done: false }));
+    expect(entry(core, BENCH).sets).toEqual(Array(4).fill({ weight: 0, reps: 5, done: false, prefill: 'default' }));
     expect(entry(core, BENCH).target).toEqual({ sets: 4, repRange: { min: 5, max: 8 } });
   });
 

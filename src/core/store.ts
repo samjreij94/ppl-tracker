@@ -16,19 +16,19 @@ import {
 } from './defaults';
 import {
   cardioSlot,
+  computeSessionPRs,
   deloadDue,
   detectPRs,
   finisherOffer,
-  exerciseHistory,
   getToday,
   getCardioHistory,
   prefillSets,
   priorSetsFor,
 } from './logic';
-import { convertWeight, doneSets } from './math';
+import { convertWeight } from './math';
 import { deriveCategory, type SeedLoadResult } from './seed-schema';
 import type { CoreState } from './state';
-import { STORAGE_KEYS, type Storage } from './storage';
+import { MIRROR_KEYS, STORAGE_KEYS, type Storage, type SyncStorage } from './storage';
 import { EXPORT_VERSION, validateExport, type ExportFile, type ImportResult } from './transfer';
 import type {
   BodyweightEntry,
@@ -142,6 +142,16 @@ export interface CreateCoreOptions {
   seed: SeedLoadResult;
   /** Clock override for tests. */
   now?: () => Date;
+  /**
+   * Synchronous write-through mirror for settings + the active session (the app's default core
+   * passes `window.localStorage`). Omit/null = no mirror (tests).
+   */
+  mirror?: SyncStorage | null;
+  /**
+   * Register `pagehide` / `visibilitychange` (hidden) listeners that call `flush()` (browser only).
+   * Default true; `core.dispose()` removes them.
+   */
+  lifecycle?: boolean;
 }
 
 /** A core instance. Hooks use the default one (or a `CoreProvider` value). */
@@ -152,12 +162,22 @@ export interface Core {
   init(): Promise<void>;
   /** Resolves when all pending writes are persisted. */
   flush(): Promise<void>;
+  /** Remove the browser lifecycle listeners (pagehide / visibilitychange). */
+  dispose(): void;
 
   /** Start a session for `dayId` (default: next in rotation). Returns the existing active session if one is in progress. */
   startSession(dayId?: string): WorkoutSession;
-  /** Update a set of the active session. Throws if no active session / bad indexes / cardio entry. */
+  /**
+   * Update a set of the active session (marks it `touched`). CARRY-OVER: when the patch marks the
+   * set done or enters weight/reps, every LATER set of the entry that is untouched, not done and
+   * has no per-set history prefill (`prefill !== 'history'`; legacy sets: weight 0) gets this
+   * set's weight and reps. Throws if no active session / bad indexes / cardio entry.
+   */
   logSet(entryIdx: number, setIdx: number, patch: SetPatch): LogSetResult;
-  /** Append a set (copies the last set's weight/reps unless `init` given; `done: false`). Returns its index. */
+  /**
+   * Append a set: copies the previous set's weight/reps (`prefill: 'default'`, untouched, so a later
+   * carry-over can still fill it) unless `init` is given (then it counts as touched). Returns its index.
+   */
   addSet(entryIdx: number, init?: Partial<SetLog>): number;
   removeSet(entryIdx: number, setIdx: number): void;
   /**
@@ -175,7 +195,10 @@ export interface Core {
   removeFinisher(): void;
   /**
    * Finish the active session (moves it to history). Returns null if none.
-   * The returned PRs are also persisted on the session as `session.prs`.
+   * A session with NO done strength set and NO done cardio is not saved: it is discarded
+   * (like `discardSession`), the rotation does not advance, and null is returned.
+   * The returned PRs (`computeSessionPRs`: at most one per exercise per kind, vs history before
+   * this session) are also persisted on the session as `session.prs`.
    */
   finishSession(): FinishResult | null;
   /** Drop the active session without saving. */
@@ -323,6 +346,31 @@ export function createCore(opts: CreateCoreOptions): Core {
   let writes: Promise<void> = Promise.resolve();
   let initP: Promise<void> | undefined;
 
+  const mirror = opts.mirror ?? null;
+  const mirrorSet = (key: string, value: unknown) => {
+    if (!mirror) return;
+    try {
+      mirror.setItem(key, JSON.stringify(value));
+    } catch (e) {
+      // Quota/blocked: drop the copy so a STALE mirror can never win over IndexedDB.
+      try {
+        mirror.removeItem(key);
+      } catch {
+        /* ignore */
+      }
+      console.warn('[core] mirror write failed', e);
+    }
+  };
+  const mirrorGet = <T,>(key: string): T | undefined => {
+    if (!mirror) return undefined;
+    try {
+      const raw = mirror.getItem(key);
+      return raw == null ? undefined : (JSON.parse(raw) as T);
+    } catch {
+      return undefined;
+    }
+  };
+
   const persist = (keys: Array<keyof typeof STORAGE_KEYS>) => {
     const snap = state;
     const values: Record<keyof typeof STORAGE_KEYS, unknown> = {
@@ -332,15 +380,24 @@ export function createCore(opts: CreateCoreOptions): Core {
       active: snap.active,
       bodyweight: snap.bodyweight,
     };
+    // Synchronous mirror first (survives an immediate kill). A null active session is mirrored
+    // only AFTER IndexedDB has the new state, so a just-finished session can't vanish from both.
+    if (keys.includes('settings')) mirrorSet(MIRROR_KEYS.settings, snap.settings);
+    const savedAt = now().toISOString();
+    if (keys.includes('active') && snap.active) mirrorSet(MIRROR_KEYS.active, { savedAt, value: snap.active });
     writes = writes
       .then(() => Promise.all(keys.map((k) => opts.storage.set(STORAGE_KEYS[k], values[k]))))
       .then(
-        () => undefined,
+        () => {
+          if (keys.includes('active') && !snap.active && state.active === null) mirrorSet(MIRROR_KEYS.active, { savedAt, value: null });
+        },
         (e) => console.error('[core] persist failed', e),
       );
   };
   const setState = (patch: Partial<CoreState>, keys: Array<keyof typeof STORAGE_KEYS> = []) => {
     state = { ...state, ...patch };
+    // Every settings write is stamped (newest copy wins on init: IndexedDB vs mirror).
+    if (keys.includes('settings')) state = { ...state, settings: { ...state.settings, updatedAt: now().toISOString() } };
     if (keys.length) persist(keys);
     listeners.forEach((l) => l());
   };
@@ -384,6 +441,24 @@ export function createCore(opts: CreateCoreOptions): Core {
     }
   };
 
+  // Browser lifecycle: flush pending IndexedDB writes when the page is hidden / unloaded (iOS may
+  // kill a backgrounded PWA right away). Guarded for non-browser environments.
+  let removeLifecycle = () => {};
+  if (opts.lifecycle !== false && typeof window !== 'undefined' && typeof document !== 'undefined' && typeof window.addEventListener === 'function') {
+    const onPageHide = () => {
+      void core.flush();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') void core.flush();
+    };
+    window.addEventListener('pagehide', onPageHide);
+    document.addEventListener('visibilitychange', onVisibility);
+    removeLifecycle = () => {
+      window.removeEventListener('pagehide', onPageHide);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }
+
   const core: Core = {
     getState: () => state,
     subscribe(l) {
@@ -392,13 +467,27 @@ export function createCore(opts: CreateCoreOptions): Core {
     },
     init() {
       return (initP ??= (async () => {
-        const [settings, custom, sessions, active, bodyweight] = await Promise.all([
+        const [idbSettings, custom, sessions, idbActive, bodyweight] = await Promise.all([
           opts.storage.get<Partial<Settings>>(STORAGE_KEYS.settings),
           opts.storage.get<Exercise[]>(STORAGE_KEYS.customExercises),
           opts.storage.get<WorkoutSession[]>(STORAGE_KEYS.sessions),
           opts.storage.get<WorkoutSession | null>(STORAGE_KEYS.active),
           opts.storage.get<BodyweightEntry[]>(STORAGE_KEYS.bodyweight),
         ]);
+        // Synchronous mirror: settings → the newer `updatedAt` wins (missing = oldest, tie → IndexedDB).
+        const mSettings = mirrorGet<Partial<Settings>>(MIRROR_KEYS.settings);
+        const useMirrorSettings =
+          !!mSettings && typeof mSettings === 'object' && (!idbSettings || (mSettings.updatedAt ?? '') > (idbSettings.updatedAt ?? ''));
+        const settings = useMirrorSettings ? mSettings : idbSettings;
+        // Active session → the mirror (written synchronously on every change) unless that session
+        // is already in the finished history (finish landed in IndexedDB, mirror not yet cleared).
+        const mActive = mirrorGet<{ savedAt?: string; value?: WorkoutSession | null }>(MIRROR_KEYS.active);
+        const mValue = mActive && 'value' in mActive ? (mActive.value ?? null) : undefined;
+        const useMirrorActive =
+          mValue !== undefined &&
+          !(mValue && (sessions ?? []).some((s) => s.id === mValue.id)) &&
+          JSON.stringify(mValue) !== JSON.stringify(idbActive ?? null);
+        const active = useMirrorActive ? mValue : idbActive;
         // Existing install (any stored user data) without onboardedAt → migrate as onboarded.
         // A truly fresh install (nothing stored) stays un-onboarded.
         const hasData =
@@ -410,6 +499,10 @@ export function createCore(opts: CreateCoreOptions): Core {
         let merged = mergeSettings(baseSettings, settings as SettingsPatch | undefined);
         const migrate = hasData && !merged.onboardedAt;
         if (migrate) merged = migrateOnboarded(merged, settings, now().toISOString());
+        // Repair IndexedDB from the mirror (only keys that need it; migration stamps settings).
+        const keys: Array<keyof typeof STORAGE_KEYS> = [];
+        if (migrate || useMirrorSettings) keys.push('settings');
+        if (useMirrorActive) keys.push('active');
         setState({
           status: opts.seed.ok ? 'ready' : 'error',
           settings: merged,
@@ -417,11 +510,14 @@ export function createCore(opts: CreateCoreOptions): Core {
           active: active ?? null,
           bodyweight: bodyweight ?? [],
           ...compose(custom ?? []),
-        }, migrate ? ['settings'] : []);
+        }, keys);
         autoEndDeload();
       })());
     },
     flush: () => writes,
+    dispose() {
+      removeLifecycle();
+    },
 
     startSession(dayId) {
       if (state.active) return state.active;
@@ -471,13 +567,21 @@ export function createCore(opts: CreateCoreOptions): Core {
       const e = strengthEntry(a, entryIdx);
       const cur = e.sets[setIdx];
       if (!cur) throw new Error(`set ${setIdx} out of range`);
-      const next: SetLog = { ...cur, ...patch };
+      const next: SetLog = { ...cur, ...patch, touched: patch.touched ?? true };
       if (patch.done === true && !cur.done && !patch.timestamp) next.timestamp = now().toISOString();
       if (patch.done === false) delete next.timestamp;
       const prior = priorSetsFor(state, e.exerciseId, { entryIdx, setIdx });
       const display = { ...next, weight: convertWeight(next.weight, a.unit, state.settings.unit) };
       const prs = next.done && !cur.done ? detectPRs(e.exerciseId, display, prior) : [];
-      const sets = e.sets.map((s, i) => (i === setIdx ? next : s));
+      // Carry-over: completing a set or entering weight/reps fills later untouched default sets.
+      const carry = patch.done === true || patch.weight !== undefined || patch.reps !== undefined;
+      const isCarryTarget = (s: SetLog) =>
+        !s.touched && !s.done && (s.prefill === 'default' || (s.prefill === undefined && s.weight === 0));
+      const sets = e.sets.map((s, i) => {
+        if (i === setIdx) return next;
+        if (carry && i > setIdx && isCarryTarget(s)) return { ...s, weight: next.weight, reps: next.reps, prefill: 'default' as const };
+        return s;
+      });
       setState({ active: replaceEntry(a, entryIdx, { ...e, sets }) }, ['active']);
       return { prs };
     },
@@ -486,7 +590,15 @@ export function createCore(opts: CreateCoreOptions): Core {
       const a = requireActive();
       const e = strengthEntry(a, entryIdx);
       const last = e.sets[e.sets.length - 1];
-      const s: SetLog = { weight: last?.weight ?? 0, reps: last?.reps ?? e.target.repRange.min, ...init, done: init?.done ?? false };
+      const given = !!init && (init.weight !== undefined || init.reps !== undefined || init.done !== undefined);
+      const s: SetLog = {
+        weight: last?.weight ?? 0,
+        reps: last?.reps ?? e.target.repRange.min,
+        prefill: 'default',
+        ...(given ? { touched: true } : {}),
+        ...init,
+        done: init?.done ?? false,
+      };
       setState({ active: replaceEntry(a, entryIdx, { ...e, sets: [...e.sets, s] }) }, ['active']);
       return e.sets.length;
     },
@@ -536,26 +648,24 @@ export function createCore(opts: CreateCoreOptions): Core {
     finishSession() {
       const a = state.active;
       if (!a) return null;
-      const session: WorkoutSession = { ...a, finishedAt: now().toISOString() };
-      // PRs: per exercise, best of the session vs all previous history
-      const prs: PRResult[] = [];
-      const unit = state.settings.unit;
-      const ids = [...new Set(a.entries.filter((e) => e.kind === 'strength').map((e) => e.exerciseId))];
-      for (const id of ids) {
-        const prior = exerciseHistory(state.sessions, id, unit).flatMap((h) => h.sets);
-        const mine = a.entries
-          .flatMap((e) => (e.kind === 'strength' && e.exerciseId === id ? doneSets(e.sets) : []))
-          .map((s) => ({ ...s, weight: convertWeight(s.weight, a.unit, unit) }));
-        const best = new Map<string, PRResult>();
-        for (const s of mine) {
-          for (const pr of detectPRs(id, s, prior)) {
-            const key = pr.kind === 'repsAtWeight' ? `r${pr.weight}` : pr.kind;
-            const cur = best.get(key);
-            if (!cur || pr.value > cur.value) best.set(key, { ...pr, sessionId: session.id, date: session.startedAt });
-          }
-        }
-        prs.push(...best.values());
+      // Nothing done (no done strength set, no done cardio) → not a workout: discard, keep the rotation.
+      const anyDone = a.entries.some((e) => (e.kind === 'strength' ? e.sets.some((x) => x.done) : e.done));
+      if (!anyDone) {
+        setState({ active: null }, ['active']);
+        return null;
       }
+      // Active-only set flags are not part of history.
+      const clean = (x: SetLog): SetLog => {
+        const { touched: _t, prefill: _p, ...rest } = x;
+        return rest;
+      };
+      const session: WorkoutSession = {
+        ...a,
+        entries: a.entries.map((e) => (e.kind === 'strength' ? { ...e, sets: e.sets.map(clean) } : e)),
+        finishedAt: now().toISOString(),
+      };
+      // Canonical PRs: at most one per exercise per kind, vs history BEFORE this session.
+      const prs: PRResult[] = computeSessionPRs(session, state.sessions, state.settings.unit);
       session.prs = prs;
       setState({ active: null, sessions: [...state.sessions, session] }, ['active', 'sessions']);
       return { session, prs };
@@ -674,7 +784,7 @@ export function createCore(opts: CreateCoreOptions): Core {
     updateSettings(patch) {
       const settings = mergeSettings(state.settings, patch);
       setState({ settings }, ['settings']);
-      return settings;
+      return state.settings;
     },
 
     completeOnboarding(input) {
@@ -693,7 +803,7 @@ export function createCore(opts: CreateCoreOptions): Core {
         onboardedAt: now().toISOString(),
       };
       setState({ settings }, ['settings']);
-      return settings;
+      return state.settings;
     },
 
     updateProfile(patch) {
@@ -707,7 +817,7 @@ export function createCore(opts: CreateCoreOptions): Core {
         },
       };
       setState({ settings }, ['settings']);
-      return settings;
+      return state.settings;
     },
 
     startDeload(o = {}) {

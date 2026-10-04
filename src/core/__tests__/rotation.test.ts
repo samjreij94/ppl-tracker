@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { getDays, getToday, nextDayId } from '../logic';
-import { makeCore, miniSeed, runSession } from './helpers';
+import type { Core } from '../store';
+import { makeCore, miniSeed } from './helpers';
+
+/** Start a session and finish it with one done strength set (empty sessions are discarded). */
+function runSession(core: Core, dayId: string | undefined, _perf: object) {
+  core.startSession(dayId);
+  const ei = core.getState().active!.entries.findIndex((e) => e.kind === 'strength');
+  core.logSet(ei, 0, { weight: 100, reps: 5, done: true });
+  return core.finishSession();
+}
 
 const ROT = ['push-a', 'pull-a', 'legs-a', 'push-b', 'pull-b', 'legs-b'];
 

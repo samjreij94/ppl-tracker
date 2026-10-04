@@ -66,6 +66,7 @@ export type { UseBodyweight, UseDataTransfer, UseDeload, UseOnboarding, UseExerc
 // Pure queries (take a CoreState snapshot)
 export {
   cardioSlot,
+  computeSessionPRs,
   deloadDue,
   deloadSets,
   detectPRs,
@@ -90,6 +91,7 @@ export {
   prefillFromLast,
   prefillSets,
   resolveSlotExerciseId,
+  sessionPRs,
   suggestProgression,
   warmupPrescription,
 } from './logic';
@@ -114,8 +116,8 @@ export {
 } from './defaults';
 
 // Storage
-export { createIdbStorage, createMemoryStorage, STORAGE_KEYS } from './storage';
-export type { Storage } from './storage';
+export { browserLocalStorage, createIdbStorage, createMemoryStorage, createMemorySyncStorage, MIRROR_KEYS, STORAGE_KEYS } from './storage';
+export type { Storage, SyncStorage } from './storage';
 
 // Seed
 export { deriveCategory, loadSeed, normalizeCategory, SEED_VERSION } from './seed-schema';
