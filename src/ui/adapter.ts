@@ -15,6 +15,7 @@ import {
   getExerciseSeries,
   getPRs,
   getSessions,
+  useCore,
   useCoreState,
   useDataTransfer,
   useExercises,
@@ -84,8 +85,32 @@ export function prText(pr: PRResult, unit: Unit): string {
 }
 const bestPr = (prs: PRResult[]) => [...prs].sort((a, b) => PR_ORDER.indexOf(a.kind) - PR_ORDER.indexOf(b.kind))[0];
 
+/* ---------- ready gate ----------
+ * Core loads IndexedDB asynchronously; anything written while status is 'loading' would be
+ * replaced by the stored snapshot (or clobber it). Every UI action goes through this gate, which
+ * checks the LIVE store status at call time (not a possibly stale render snapshot).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyFn = (...args: any[]) => any;
+const ASYNC_ACTIONS = ['setDone', 'swap', 'addCustom', 'finish', 'exportFile', 'importText'];
+export function gateActions<T extends Record<string, AnyFn>>(blocked: () => boolean, actions: T, asyncNames: readonly (keyof T)[] = ASYNC_ACTIONS): T {
+  const out: Record<string, AnyFn> = {};
+  for (const [name, fn] of Object.entries(actions)) {
+    out[name] = (...args: unknown[]) => {
+      if (blocked()) {
+        console.warn(`[ppl] ignored "${name}": core not ready`);
+        // async actions reject so callers' error paths run; sync ones are no-ops
+        return asyncNames.includes(name) ? Promise.reject(new Error('Still loading your data — try again in a moment.')) : undefined;
+      }
+      return fn(...args);
+    };
+  }
+  return out as T;
+}
+
 /* ---------- hook ---------- */
 export function useUi() {
+  const core = useCore();
   const state = useCoreState();
   const t = useToday();
   const w = useWorkout();
@@ -263,7 +288,10 @@ export function useUi() {
     history,
     loggedExercises,
     cardioMinutes,
+    /** True once core has loaded persisted data; every action below is a no-op (or rejects) until then. */
+    ready: state.status === 'ready',
 
+    ...gateActions(() => core.getState().status !== 'ready', {
     start: () => { t.startSession(); },
     updateSet: (slotId: string, setIdx: number, patch: { weight?: number; reps?: number }) => { w.logSet(idx(slotId), setIdx, patch); },
     setDone: async (slotId: string, setIdx: number, done: boolean, vals: { weight: number; reps: number }): Promise<PrHit[]> => {
@@ -369,6 +397,7 @@ export function useUi() {
       const r = await dt.importJSON(text);
       if (!r.ok) throw new Error(r.errors.slice(0, 3).join('; ') || 'invalid backup');
     },
+    }),
   };
 }
 export type Ui = ReturnType<typeof useUi>;

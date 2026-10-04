@@ -164,6 +164,11 @@ h2.section { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; 
 .btn:disabled { opacity: .45; }
 .has-footer { --footer-h: 76px; }
 
+/* Loading gate */
+.loading { min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; color: var(--text-dim); font-weight: 600; }
+.spinner { width: 36px; height: 36px; border-radius: 50%; border: 3px solid var(--surface-3); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
 /* Today stats (steps target, bodyweight shortcut) */
 .today-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: -4px 0 14px; }
 .today-stats .stat { min-height: 56px; }

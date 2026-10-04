@@ -76,6 +76,17 @@ export default function App() {
   const swapEx = swapIdx != null && active ? active.exercises[swapIdx] : null;
   const showRest = !!rest && inWorkout && tab === 'today';
 
+  // Gate: nothing interactive renders until core has loaded stored data.
+  if (!ui.ready) {
+    return (
+      <div className="app">
+        {ui.status === 'error' && ui.error
+          ? <div className="card" role="alert" style={{ margin: 12, borderColor: 'var(--danger)' }}>{ui.error}</div>
+          : <div className="loading" role="status" aria-live="polite" data-testid="loading"><div className="spinner" aria-hidden="true" />Loading your training data…</div>}
+      </div>
+    );
+  }
+
   let screen;
   if (tab === 'progress') {
     screen = (
@@ -112,7 +123,6 @@ export default function App() {
 
   return (
     <div className="app" style={showRest ? ({ '--rest-pad': 'var(--restbar-h)' } as CSSProperties) : undefined}>
-      {ui.error && <div className="card" role="alert" style={{ margin: 12, borderColor: 'var(--danger)' }}>{ui.error}</div>}
       {screen}
       {showRest && rest && (
         <RestBar rest={rest} onAdd={(s) => setRest((r) => (r ? { endsAt: Math.max(r.endsAt, Date.now()) + s * 1000, total: r.total + s } : r))}
