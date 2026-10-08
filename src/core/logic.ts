@@ -232,6 +232,13 @@ function prefillSetsRaw(
   });
 }
 
+
+/** Singular/plural for set counts in user-facing progression messages. */
+export function formatSetCount(n: number, adjective?: string): string {
+  const noun = n === 1 ? 'set' : 'sets';
+  return adjective ? `${n} ${adjective} ${noun}` : `${n} ${noun}`;
+}
+
 /* ------------------------------------------------------------------ progression */
 
 /**
@@ -272,7 +279,7 @@ export function suggestProgression(args: {
     const rir = rules.deload.targetRir ?? '3-4';
     const top = history[0]?.sets.length ? topSet(history[0].sets)?.weight : undefined;
     if (top === undefined) {
-      return { exerciseId, action: 'deload', newSets, targetReps: repRange.min, rules: tag, message: `deload week: ${newSets} light sets of ${repRange.min}, stop at RIR ${rir}` };
+      return { exerciseId, action: 'deload', newSets, targetReps: repRange.min, rules: tag, message: `deload week: ${formatSetCount(newSets, 'light')} of ${repRange.min}, stop at RIR ${rir}` };
     }
     const newWeight = roundToIncrement(top * (1 - rules.deload.loadReductionPct / 100), increment, 'nearest');
     return {
@@ -322,7 +329,7 @@ export function suggestProgression(args: {
     if (k < N) return hold();
     if (k === N) {
       return targetSets > rules.minSetsPerSlot
-        ? { exerciseId, action: 'dropSet', newWeight: w, newSets: targetSets - 1, targetReps: repRange.min, rules: tag, message: `stalled on a cut: drop one set (${targetSets - 1} sets) at ${w} ${unit}` }
+        ? { exerciseId, action: 'dropSet', newWeight: w, newSets: targetSets - 1, targetReps: repRange.min, rules: tag, message: `stalled on a cut: drop one set (${formatSetCount(targetSets - 1)}) at ${w} ${unit}` }
         : { ...hold(), message: `stalled on a cut: hold ${w} ${unit} one more session` };
     }
     return reduce();

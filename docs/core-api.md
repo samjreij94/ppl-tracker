@@ -13,7 +13,7 @@ useToday(dayId?) => {
 useWorkout() => {
   status; session: WorkoutSession | null; entries: ActiveEntryView[]; unit: Unit;
   startSession(dayId?): WorkoutSession;
-  logSet(entryIdx, setIdx, patch: Partial<SetLog>): { prs: PRResult[] }   // per-set PRs (live pill), only when set becomes done; carry-over to later untouched sets
+  logSet(entryIdx, setIdx, patch: Partial<SetLog>): { prs: PRResult[] }   // returns per-set PRs (live pill) only when set becomes done; stores/updates SetLog.prKinds whenever done; carry-over to later untouched sets
   addSet(entryIdx, init?: Partial<SetLog>): number;  removeSet(entryIdx, setIdx): void;
   logCardio(which: 'warmup' | 'finisher' | entryIdx, { durationMin?, done?, metrics?: {incline?, speed?, calories?, output?} }): void;
   finisher: TodayFinisher | null; hasFinisher: boolean;                     // optional zone-2 cardio after lifting
@@ -77,7 +77,7 @@ ActiveEntryView   { index; entry: SessionEntry; exercise; programmedExerciseId; 
 `CardioSlot {id:'cardio-warmup', kind:'cardio', exerciseId, durationMin, substitutionGroup:'cardio-warmup'}`,
 `WorkoutSession {id, programId, dayId, startedAt, finishedAt?, unit, entries, deload?: boolean, prs?: PRResult[]}`,
 `SessionEntry = StrengthEntry {kind:'strength', slotId, exerciseId, sets, target:{sets, repRange}, restSec} | CardioEntry {kind:'cardio', role:'warmup'|'finisher', slotId:'cardio-warmup'|'cardio-finisher', exerciseId, durationMin, done, timestamp?, metrics?}`,
-`SetLog {weight, reps, done, timestamp?}`, `Settings {unit, defaultRestSec, schedule: 3|6, increments, permanentSwaps, cardio:{enabled, defaultDurationMin}, finisher:{autoAdd}, goal: Goal, deload: {active, startedAt?, weekLength /* days, 7 */, lastEndedAt?}, profile: {name, experience?}, onboardedAt?}`,
+`SetLog {weight, reps, done, timestamp?, touched?, prefill?, prKinds?: PRKind[] /* active only */}`, `Settings {unit, defaultRestSec, schedule: 3|6, increments, permanentSwaps, cardio:{enabled, defaultDurationMin}, finisher:{autoAdd}, goal: Goal, deload: {active, startedAt?, weekLength /* days, 7 */, lastEndedAt?}, profile: {name, experience?}, onboardedAt?}`,
 `Goal {type:'fat-loss'|'build-muscle'|'general-strength', targetLossPctBodyweightPerWeek:{min,max}, proteinGPerLbGoalBodyweight?}`,
 `Experience = 'beginner'|'intermediate'|'advanced'`, `Profile {name: string, experience?: Experience}`, `BodyweightEntry {date:'YYYY-MM-DD', weight, unit, note?}`,
 `PRResult {kind:'e1rm'|'topSet'|'repsAtWeight', exerciseId, value, previous?, weight, reps, date?, sessionId?}`,
@@ -222,7 +222,9 @@ Single source of truth for the workout summary AND history: **`session.prs`** (w
    computed on demand by `sessionPRs` against the sessions before them (current unit). **Deleting a session does not
    rewrite later sessions' stored `prs`** — they stay as they were when those sessions were finished.
 6. `logSet`'s returned `prs` are different on purpose: per set, for the live pill, compared with history AND earlier done
-   sets of the current session (so two improving sets can both light up); they are not stored. `getPRs(state, id)` is the
+   sets of the current session (so two improving sets can both light up). The kinds are also stored on the active set as
+   `SetLog.prKinds?: PRKind[]` so the pill survives a mid-workout reload; recomputed (or cleared) whenever that set is
+   edited or `done` is set false; stripped on finish — `session.prs` stays canonical. `getPRs(state, id)` is the
    current all-time record table for one exercise (not per session).
 
 ## QC fixes (phase 5)
@@ -233,6 +235,10 @@ Single source of truth for the workout summary AND history: **`session.prs`** (w
   marker: only weight 0) gets that set's weight and reps. So a first-time 135×8 on set 1 fills sets 2..N; with history the
   per-set copies stay, only sets beyond last time's count carry. `addSet()` copies the previous set (`prefill: 'default'`,
   still a carry target); `addSet(i, init)` counts as touched.
+- **Per-set `prKinds`**: when a done set sets PRs, `logSet` stores `SetLog.prKinds` (the `PRKind[]` of the returned `prs`)
+  on that set in the active session. Survives reload via the active-session persistence / localStorage mirror. Recomputed
+  on every `logSet` while the set is done; cleared if it is no longer a PR or `done` is set false. Stripped on
+  `finishSession` with `touched`/`prefill` — use `session.prs` afterwards.
 - **Durable settings / active session**: every settings write is stamped `settings.updatedAt`. The app's default core
   (`getCore()`) mirrors settings (`ppl-tracker/v1/settings`) and the active session (`ppl-tracker/v1/active`,
   `{savedAt, value}`) SYNCHRONOUSLY to localStorage (`createCore({mirror})`, `browserLocalStorage()`), in addition to
@@ -245,8 +251,13 @@ Single source of truth for the workout summary AND history: **`session.prs`** (w
   advance the rotation: it discards the active session (like `discardSession()`) and returns `null`. A session with only
   done cardio is saved. `deleteSession` rewinds the rotation (the next day follows the latest remaining session).
 
-Additive in phase 5: `SetLog.touched?`, `SetLog.prefill?`, `Settings.updatedAt?`, `computeSessionPRs(session,
+Additive in phase 5: `SetLog.touched?`, `SetLog.prefill?`, `SetLog.prKinds?`, `Settings.updatedAt?`, `computeSessionPRs(session,
 priorSessions, unit)`, `sessionPRs(state, sessionOrId)`, `useExerciseHistory().sessionPRs`, `Core.dispose()`,
 `CreateCoreOptions.mirror?` / `lifecycle?`, `SyncStorage`, `MIRROR_KEYS`, `browserLocalStorage()`,
 `createMemorySyncStorage()`. Behavior: `finishSession` dedupes to one PR per exercise per kind (previously one
 `repsAtWeight` per weight) and returns null for empty sessions.
+
+## Progression message plurals
+
+User-facing progression hints use `formatSetCount(n)` / `formatSetCount(n, 'light')` so counts read "1 set" / "2 sets"
+(never "1 sets"). Applies to cut `dropSet` messages and deload "light set(s)" messages.

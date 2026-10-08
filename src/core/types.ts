@@ -229,6 +229,13 @@ export interface SetLog {
    * carried value or an added set) → carry-over target while untouched. Stripped on finish.
    */
   prefill?: 'history' | 'default';
+  /**
+   * Active session only: PR kinds this set currently sets vs prior history + earlier done sets
+   * this session (same comparison as `logSet`'s returned `prs`). Survives reload mid-workout
+   * (persisted with the active session / localStorage mirror). Cleared when the set is edited
+   * and no longer a PR, or when `done` is set false. Stripped on finish — `session.prs` is canonical.
+   */
+  prKinds?: PRKind[];
 }
 
 /** A strength exercise performed in a session. */

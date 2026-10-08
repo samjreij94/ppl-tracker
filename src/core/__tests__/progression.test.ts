@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PROGRESSION_RULES } from '../defaults';
-import { getIncrement, getProgression, getToday, plannedSets, suggestProgression } from '../logic';
+import { formatSetCount, getIncrement, getProgression, getToday, plannedSets, suggestProgression } from '../logic';
 import type { SetLog, StrengthEntry, TodayStrengthSlot } from '../index';
 import { entryIdx, makeCore, runSession, sets } from './helpers';
 
@@ -56,6 +56,29 @@ describe('double progression (pure)', () => {
     expect(two.newSets).toBeUndefined();
     expect(two.message).toMatch(/one more session/);
     expect(suggestProgression({ ...cut, history: [S(200, 5, 4), ...h] })).toMatchObject({ action: 'reduceLoad', newWeight: 190 });
+  });
+
+  it('progression messages use singular/plural set counts (never "1 sets")', () => {
+    expect(formatSetCount(1)).toBe('1 set');
+    expect(formatSetCount(2)).toBe('2 sets');
+    expect(formatSetCount(1, 'light')).toBe('1 light set');
+    expect(formatSetCount(2, 'light')).toBe('2 light sets');
+    const h = [S(200, 6, 5, 4), S(200, 6, 4, 4), S(200, 5, 5, 3)];
+    const drop = suggestProgression({ ...cut, history: h });
+    expect(drop.message).toContain('(2 sets)');
+    expect(drop.message).not.toContain('1 sets');
+    // With minSetsPerSlot 1, a 2-set slot can drop to 1 → must say "1 set"
+    const rules = { ...DEFAULT_PROGRESSION_RULES, minSetsPerSlot: 1 };
+    const one = suggestProgression({ ...cut, targetSets: 2, rules, history: [S(200, 6, 4), S(200, 5, 4), S(200, 4, 4)] });
+    expect(one).toMatchObject({ action: 'dropSet', newSets: 1 });
+    expect(one.message).toContain('(1 set)');
+    expect(one.message).not.toContain('1 sets');
+    // Deload of a 2-set slot → 1 light set
+    const dl = suggestProgression({ ...base, targetSets: 2, deload: true, history: [] });
+    expect(dl.message).toMatch(/1 light set/);
+    expect(dl.message).not.toContain('1 light sets');
+    const dl2 = suggestProgression({ ...base, targetSets: 4, deload: true, history: [] });
+    expect(dl2.message).toMatch(/2 light sets/);
   });
 });
 

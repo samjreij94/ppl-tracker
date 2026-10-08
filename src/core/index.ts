@@ -70,6 +70,7 @@ export {
   deloadDue,
   deloadSets,
   detectPRs,
+  formatSetCount,
   exerciseHistory,
   finisherPrescription,
   finisherOffer,

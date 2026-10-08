@@ -572,7 +572,11 @@ export function createCore(opts: CreateCoreOptions): Core {
       if (patch.done === false) delete next.timestamp;
       const prior = priorSetsFor(state, e.exerciseId, { entryIdx, setIdx });
       const display = { ...next, weight: convertWeight(next.weight, a.unit, state.settings.unit) };
-      const prs = next.done && !cur.done ? detectPRs(e.exerciseId, display, prior) : [];
+      // Store prKinds whenever the set is done (recomputed on edit); return prs only when becoming done.
+      const computed = next.done ? detectPRs(e.exerciseId, display, prior) : [];
+      if (computed.length) next.prKinds = computed.map((p) => p.kind);
+      else delete next.prKinds;
+      const prs = next.done && !cur.done ? computed : [];
       // Carry-over: completing a set or entering weight/reps fills later untouched default sets.
       const carry = patch.done === true || patch.weight !== undefined || patch.reps !== undefined;
       const isCarryTarget = (s: SetLog) =>
@@ -654,9 +658,9 @@ export function createCore(opts: CreateCoreOptions): Core {
         setState({ active: null }, ['active']);
         return null;
       }
-      // Active-only set flags are not part of history.
+      // Active-only set flags (touched/prefill/prKinds) are not part of history.
       const clean = (x: SetLog): SetLog => {
-        const { touched: _t, prefill: _p, ...rest } = x;
+        const { touched: _t, prefill: _p, prKinds: _k, ...rest } = x;
         return rest;
       };
       const session: WorkoutSession = {

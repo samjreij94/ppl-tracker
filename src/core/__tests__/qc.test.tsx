@@ -1,6 +1,6 @@
 /**
  * QC fixes: set carry-over prefill, durable settings/active (localStorage mirror), canonical
- * session PRs, empty finish = discard.
+ * session PRs, empty finish = discard, per-set prKinds on active session.
  */
 import { renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -85,7 +85,7 @@ describe('set carry-over prefill', () => {
     expect(entry(core).sets[given]).toMatchObject({ weight: 50, touched: true });
     const fin = core.finishSession()!;
     const e = fin.session.entries.find((x) => x.kind === 'strength' && x.exerciseId === BENCH) as StrengthEntry;
-    expect(e.sets.every((s) => !('touched' in s) && !('prefill' in s))).toBe(true);
+    expect(e.sets.every((s) => !('touched' in s) && !('prefill' in s) && !('prKinds' in s))).toBe(true);
   });
 
   it('legacy active sets (no prefill marker): only weight-0 untouched sets are carried', async () => {
@@ -113,6 +113,55 @@ describe('set carry-over prefill', () => {
     const { core } = await makeCore({ storage: createMemoryStorage({ [STORAGE_KEYS.active]: legacy }) });
     core.logSet(0, 0, { weight: 135, reps: 8, done: true });
     expect(wr(core)).toEqual([[135, 8], [120, 5], [135, 8]]);
+  });
+});
+
+describe('per-set prKinds on active session', () => {
+  it('stores prKinds when logSet returns PRs; clears on undo or when no longer a PR; strips on finish', async () => {
+    const { core } = await makeCore();
+    runSession(core, 'push-a', { [BENCH]: sets(4, 135, 8) });
+    core.startSession('push-a');
+    const ei = entryIdx(core, BENCH);
+    const { prs } = core.logSet(ei, 0, { weight: 145, reps: 8, done: true });
+    expect(prs.map((p) => p.kind)).toContain('topSet');
+    expect(entry(core).sets[0].prKinds).toEqual(prs.map((p) => p.kind));
+    // Edit down while still done → no longer a topSet PR (same weight as history)
+    core.logSet(ei, 0, { weight: 135, reps: 8 });
+    expect(entry(core).sets[0].prKinds).toBeUndefined();
+    // Heavier again → PR returns
+    core.logSet(ei, 0, { weight: 150, reps: 5 });
+    expect(entry(core).sets[0].prKinds).toContain('topSet');
+    // Undo done → cleared
+    core.logSet(ei, 0, { done: false });
+    expect(entry(core).sets[0].done).toBe(false);
+    expect(entry(core).sets[0].prKinds).toBeUndefined();
+    // Finish strips (even if PR was set)
+    core.logSet(ei, 0, { weight: 150, reps: 5, done: true });
+    expect(entry(core).sets[0].prKinds?.length).toBeGreaterThan(0);
+    const fin = core.finishSession()!;
+    const e = fin.session.entries.find((x) => x.kind === 'strength' && x.exerciseId === BENCH) as StrengthEntry;
+    expect(e.sets.every((s) => !('prKinds' in s))).toBe(true);
+    expect(fin.session.prs?.some((p) => p.kind === 'topSet')).toBe(true);
+  });
+
+  it('prKinds survives a core re-init (active session + localStorage mirror)', async () => {
+    const inner = createMemoryStorage();
+    const mirror = createMemorySyncStorage();
+    const now = clock();
+    const c1 = createCore({ storage: lossyStorage(inner, [STORAGE_KEYS.active]), seed: SEED, now, mirror });
+    await c1.init();
+    runSession(c1, 'push-a', { [BENCH]: sets(4, 135, 8) });
+    c1.startSession('push-a');
+    const ei = entryIdx(c1, BENCH);
+    const { prs } = c1.logSet(ei, 0, { weight: 145, reps: 8, done: true });
+    expect(prs.length).toBeGreaterThan(0);
+    expect(entry(c1).sets[0].prKinds).toEqual(prs.map((p) => p.kind));
+    expect(await inner.get(STORAGE_KEYS.active)).toBeUndefined(); // IndexedDB never landed
+
+    const c2 = createCore({ storage: inner, seed: SEED, now, mirror });
+    await c2.init();
+    expect(entry(c2).sets[0]).toMatchObject({ weight: 145, reps: 8, done: true });
+    expect(entry(c2).sets[0].prKinds).toEqual(prs.map((p) => p.kind));
   });
 });
 
