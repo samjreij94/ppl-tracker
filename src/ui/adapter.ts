@@ -3,7 +3,7 @@
  * UI view-models in ./types. No business logic lives here — only shape mapping and display
  * formatting. Anything core doesn't provide yet is marked `TODO(core)`.
  */
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import {
   CARDIO_SLOT_ID,
   FINISHER_SLOT_ID,
@@ -98,10 +98,6 @@ export function prText(pr: PRResult, unit: Unit): string {
 const bestPr = (prs: PRResult[]) => [...prs].sort((a, b) => PR_ORDER.indexOf(a.kind) - PR_ORDER.indexOf(b.kind))[0];
 const prKinds = (prs: PRResult[]) => [...new Set([...prs].sort((a, b) => PR_ORDER.indexOf(a.kind) - PR_ORDER.indexOf(b.kind)).map((p) => PR_LABEL[p.kind]))];
 
-/** Live per-set PR marks: the core's `logSet` result for a set, remembered with the values it was hit at. */
-type SetPrMark = { weight: number; reps: number; kinds: string[] };
-const prKey = (sessionId: string, slotId: string, exerciseId: string, setIdx: number) => `${sessionId}|${slotId}|${exerciseId}|${setIdx}`;
-
 /* ---------- ready gate ----------
  * Core loads IndexedDB asynchronously; anything written while status is 'loading' would be
  * replaced by the stored snapshot (or clobber it). Every UI action goes through this gate, which
@@ -136,9 +132,6 @@ export function useUi() {
   const dt = useDataTransfer();
   const bwh = useBodyweight();
   const dl = useDeload();
-  // Per-set PR hits returned by core `logSet` during the active session (UI display state only).
-  const [prMarks, setPrMarks] = useState<ReadonlyMap<string, SetPrMark>>(() => new Map());
-
   /* ---------- profile / onboarding ----------
    * TODO(core): Dealer is adding `settings.profile {name, experience}`, `settings.onboardedAt` and
    * `completeOnboarding()` (existing installs migrate as onboarded + fat-loss). Until they land:
@@ -207,7 +200,6 @@ export function useUi() {
     const sess = w.session;
     if (!sess) return null;
     const day = state.program.days.find((d) => d.id === sess.dayId);
-    const canonPr = prMarks.size ? new Set(sessionPRs(state, sess).map((p) => p.exerciseId)) : null;
     const cardioVM = (role: CardioRole): CardioVM | null => {
       const v = w.entries.find((e) => e.entry.kind === 'cardio' && (e.entry.role ?? 'warmup') === role);
       if (!v) return null;
@@ -234,13 +226,7 @@ export function useUi() {
       finisherOffer: w.hasFinisher ? null : finisherOffer,
       exercises: w.entries.filter((e) => e.entry.kind === 'strength').map((e: ActiveEntryView): ExerciseVM => {
         const se = e.entry as StrengthEntry;
-        // A mark only shows while the set is still done with the values it was hit at, and only for
-        // exercises in the canonical session PR list (same source as the summary + history trophy).
-        const markFor = (st: SetLog, i: number) => {
-          if (!canonPr?.has(se.exerciseId) || !st.done) return undefined;
-          const m = prMarks.get(prKey(sess.id, se.slotId, se.exerciseId, i));
-          return m && m.weight === st.weight && m.reps === st.reps ? m : undefined;
-        };
+        // Live PR pill from core SetLog.prKinds (persisted mid-workout; cleared on undo/edit below PR).
         return {
           slotId: se.slotId,
           exerciseId: se.exerciseId,
@@ -253,14 +239,16 @@ export function useUi() {
           ...hintKind(e.progression),
           swapped: e.swapped,
           restSec: se.restSec,
-          sets: se.sets.map((st, i) => {
-            const m = markFor(st, i);
-            return { weight: st.weight, reps: st.reps, done: st.done, ...(m && { pr: true, prKinds: m.kinds }) };
+          sets: se.sets.map((st) => {
+            const kinds = st.prKinds?.length
+              ? [...new Set([...st.prKinds].sort((a, b) => PR_ORDER.indexOf(a) - PR_ORDER.indexOf(b)).map((k) => PR_LABEL[k]))]
+              : undefined;
+            return { weight: st.weight, reps: st.reps, done: st.done, ...(kinds?.length && { pr: true, prKinds: kinds }) };
           }),
         };
       }),
     };
-  }, [w.session, w.entries, w.unit, w.finisher, w.hasFinisher, state, effort, finisherOffer, prMarks]);
+  }, [w.session, w.entries, w.unit, w.finisher, w.hasFinisher, state, effort, finisherOffer]);
 
   const idx = (slotId: string) => {
     const e = entryBySlot.get(slotId);
@@ -344,24 +332,14 @@ export function useUi() {
 
     ...gateActions(() => core.getState().status !== 'ready', {
     start: () => { t.startSession(); },
-    discard: () => { w.discardSession(); setPrMarks(new Map()); },
+    discard: () => { w.discardSession(); },
     deleteSession: (sessionId: string) => { core.deleteSession(sessionId); },
     updateSet: (slotId: string, setIdx: number, patch: { weight?: number; reps?: number }) => { w.logSet(idx(slotId), setIdx, patch); },
     setDone: async (slotId: string, setIdx: number, done: boolean, vals: { weight: number; reps: number }): Promise<PrHit[]> => {
       const entry = entryBySlot.get(slotId);
-      const sessionId = w.session?.id;
       const res = w.logSet(idx(slotId), setIdx, { ...vals, done });
-      const kinds = prKinds(res.prs);
-      if (sessionId && entry) {
-        const key = prKey(sessionId, slotId, entry.entry.exerciseId, setIdx);
-        setPrMarks((m) => {
-          if (!kinds.length && !m.has(key)) return m;
-          const next = new Map(m);
-          if (kinds.length) next.set(key, { weight: vals.weight, reps: vals.reps, kinds }); else next.delete(key);
-          return next;
-        });
-      }
       if (!res.prs.length) return [];
+      const kinds = prKinds(res.prs);
       const top = bestPr(res.prs);
       return [{ name: entry?.exercise.name ?? '', kinds, text: `${fmtNum(top.weight)} ${w.unit} × ${top.reps}` }];
     },
@@ -430,7 +408,6 @@ export function useUi() {
       const day = state.program.days.find((d) => d.id === sess.dayId);
       const names = new Map(w.entries.map((e) => [e.exercise.id, e.exercise.name]));
       const res = w.finishSession();
-      setPrMarks(new Map());
       if (!res) return null; // nothing done: core discarded it, rotation not advanced
       const fs = res.session;
       // Canonical session PRs: the same list the history trophy counts (distinct exercises).

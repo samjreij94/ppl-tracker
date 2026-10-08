@@ -1,17 +1,18 @@
 /**
- * Live per-set PR pill: marking a set done that beats history shows the PR pill on THAT set (from
- * core `logSet`'s per-set result); undoing it clears the pill. The summary's PR list and the
- * history trophy count the same thing: distinct exercises in the canonical `sessionPRs`.
+ * Live per-set PR pill: driven by core `SetLog.prKinds` on the active session (survives reload).
+ * Summary PR list and history trophy count the same thing: distinct exercises in `sessionPRs`.
  */
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, describe, expect, it } from 'vitest';
 import App from '../../App';
 import { CoreProvider, createCore, createMemoryStorage, getBundledSeed, sessionPRs, type Core } from '../../core';
 import { plural, pluralWord } from '../types';
 
+afterEach(() => cleanup());
+
 /** History: one finished session (100 lb × 8 on the first exercise), then an active session of the same day. */
-async function coreWithHistory(): Promise<Core> {
-  const core = createCore({ storage: createMemoryStorage(), seed: getBundledSeed() });
+async function coreWithHistory(storage = createMemoryStorage()): Promise<Core> {
+  const core = createCore({ storage, seed: getBundledSeed() });
   await core.init();
   core.completeOnboarding({ name: 'T', goal: 'build-muscle', experience: 'intermediate', unit: 'lb', schedule: 6 });
   const s0 = core.startSession();
@@ -68,6 +69,30 @@ describe('live per-set PR pill', () => {
     expect(trophies).toHaveLength(1);
     expect(trophies[0]).toHaveTextContent(String(distinct));
     expect(trophies[0]).toHaveAttribute('aria-label', '1 PR');
+  });
+
+  it('survives re-creating the core from persisted active session', async () => {
+    const storage = createMemoryStorage();
+    const core = await coreWithHistory(storage);
+    const ei = core.getState().active!.entries.findIndex((e) => e.kind === 'strength');
+    core.logSet(ei, 0, { weight: 105, reps: 8, done: true });
+    expect(core.getState().active!.entries[ei].kind === 'strength' &&
+      (core.getState().active!.entries[ei] as { sets: { prKinds?: string[] }[] }).sets[0].prKinds?.length).toBeGreaterThan(0);
+
+    const { unmount } = render(<CoreProvider core={core}><App /></CoreProvider>);
+    const ex = (await screen.findAllByTestId('exercise'))[0];
+    await waitFor(() => expect(within(ex).getByTestId('set-pr')).toBeInTheDocument());
+    expect(within(ex).getByTestId('set-pr').getAttribute('title')).toMatch(/Heaviest set/);
+    unmount();
+
+    // Fresh core from the same storage (simulates mid-workout reload) — pill comes from set.prKinds.
+    const core2 = createCore({ storage, seed: getBundledSeed() });
+    await core2.init();
+    render(<CoreProvider core={core2}><App /></CoreProvider>);
+    const ex2 = (await screen.findAllByTestId('exercise'))[0];
+    await waitFor(() => expect(within(ex2).getByTestId('set-pr')).toBeInTheDocument());
+    expect(within(ex2).getAllByTestId('set-pr')).toHaveLength(1);
+    expect(within(ex2).getByTestId('set-pr').getAttribute('title')).toMatch(/Heaviest set/);
   });
 });
 

@@ -100,9 +100,9 @@ export interface SetVM {
   weight: number;
   reps: number;
   done: boolean;
-  /** This set broke a record when it was marked done (core `logSet` result); cleared if undone or edited. */
+  /** True when core `SetLog.prKinds` is non-empty on the active set (cleared on undo/edit below PR). */
   pr?: boolean;
-  /** Record kinds this set broke, best first ("Heaviest set", "e1RM", "Rep PR"). */
+  /** Display labels for those kinds, best first ("Heaviest set", "e1RM", "Rep PR"). */
   prKinds?: string[];
 }
 
