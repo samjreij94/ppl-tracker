@@ -162,7 +162,7 @@ export default function App() {
           onSwap={async (id, scope) => { await ui.swap(swapEx.slotId, id, scope); setSwapIdx(null); }}
           onAddCustom={async (input, scope) => { await ui.addCustom(swapEx.slotId, input, scope); setSwapIdx(null); }} />
       )}
-      {toast && <Celebration message={toast} onDone={clearToast} />}
+      {toast && <Celebration message={toast} onDone={clearToast} celebrate={toast.startsWith('🏆')} />}
       {confirmDiscard && (
         <ConfirmDialog title="Discard workout?" body="Nothing from this workout will be saved, and your rotation stays on this day." danger
           confirmLabel="Discard" onCancel={() => setConfirmDiscard(false)} onConfirm={discard} />
